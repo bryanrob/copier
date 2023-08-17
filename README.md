@@ -17,7 +17,7 @@ The program requires Python3 and the following dependencies:
     - A Python wrapper.
   ```
 
-You can either set this up using standard Python3 (ver. 3.12+).
+You can either set this up using standard Python3 (ver. 3.11+).
 1) Download & install Python.
   - If this is already fulfilled, you can skip to step 2.
   - On **Windows**, you can do either of the following:
