@@ -1,0 +1,1 @@
+pyinstaller --noconfirm --onedir --add-data "./versionData;versionData/" --add-data "%localappdata%/Programs/Python/Python312/Lib/site-packages/customtkinter;customtkinter/" --add-data "%localappdata%/Programs/Python/Python312/Lib/site-packages/tkfilebrowser;tkfilebrowser/" .\main.pyw

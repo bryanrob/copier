@@ -1,0 +1,10 @@
+__pycache__
+build
+copier_env
+dist
+test
+_win_packaget.bat
+log.csv
+main.spec
+options.json
+*.job.json

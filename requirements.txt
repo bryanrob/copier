@@ -1,0 +1,4 @@
+customtkinter==5.1.3
+tkfilebrowser==2.3.2
+pywin32==306
+pyinstaller==5.13.0
