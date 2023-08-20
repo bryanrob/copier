@@ -40,14 +40,9 @@ class Window(tk.CTk):
     __items=[__foldersDic,__filesDic,__othersDic]
 
     options : dict
-    defaultOptions = {
-        "log" : False,
-        "logType" : "None",
-        "logDest" : "",
-        "fileConflictMode" : 0,
-        "threads" : 4
-    }
+    defaultOptions : dict
     #Options' parameters:
+    #   "job-type" : str; The base copy mode set for the current job.
     #   "log" : bool; Allows the logging of the job.
     #   "logType" : str; Sets the hashing algorithm used in the logging.
     #   "logDest" : str; The destination of the log file.
@@ -63,6 +58,9 @@ class Window(tk.CTk):
 
     def __init__(this) -> None:
         super().__init__()
+
+        with open("./versionData/defaultOptions.json","r") as file:
+            this.defaultOptions=json.load(file)
 
         #Initialize the files & folders lists.
         this.__filesList=[]
@@ -168,7 +166,7 @@ class Window(tk.CTk):
         this.buttonStart.pack(side=tk.BOTTOM,padx=this.pad,pady=(this.pad/2,buttonPad))
         #Job Type Selection:
 
-        this.jobType=tk.CTkOptionMenu(this.toolsFrame,values=["Copy","Move","Mirror"],font=this.itemFont)
+        this.jobType=tk.CTkOptionMenu(this.toolsFrame,values=["Copy","Move","Mirror"],font=this.itemFont,command=this.setJobType)
         this.jobType.pack(side=tk.BOTTOM,padx=this.pad,pady=this.pad/2)
         this.labelJobType=tk.CTkLabel(this.toolsFrame,text="Job Type:",font=this.bodyFont)
         this.labelJobType.pack(side=tk.BOTTOM,padx=this.pad,pady=(this.pad/2,0))
@@ -328,7 +326,7 @@ class Window(tk.CTk):
             for i,v in enumerate(this.__items):
                 jsonData[i]=v
             jsonData["destination"]=this.textboxDestination.get()
-            jsonData["copyType"]=this.jobType.get()
+            #jsonData["copyType"]=this.jobType.get()
             jsonData["options"]=this.options
             with open(fileTarget,"w") as file:
                 json.dump(jsonData,file)
@@ -352,7 +350,7 @@ class Window(tk.CTk):
             for index in list(data.keys())[0:2]:
                 this.__items[int(index)]=data[index]
             this.__setDestination(data.get("destination","<NO DESTINATION>"))
-            this.jobType.set(data.get("copyType","Copy"))
+            #this.jobType.set(data.get("copyType","Copy"))
             jobFileOptions=data.get("options",{})
             for key in jobFileOptions.keys():
                 this.options[key]=jobFileOptions[key]
@@ -369,6 +367,8 @@ class Window(tk.CTk):
 
         #this.toplevel.focus()
     #END def changeSettings
+    def setJobType(this) -> None:
+        this.options["job-type"]=this.jobType.get()
     def startJob(this) -> None:
         if this.toplevel is None or not this.toplevel.winfo_exists():
             this.__enableWorkingBar()
