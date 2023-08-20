@@ -56,6 +56,9 @@ class IndividualThreadWidget():
     #END def generateThreadLabel
 
     def showProgress(this) -> None:
+        """
+        Updates the interface to display the current progress of each thread.
+        """
         this.__threadLabel.configure(text=f"Thread # {this.__id}\nTarget:\n{this.threadTarget.get()}")
 
         this.__threadProgress.set(round((this.threadWritten.get()/this.threadFileSize.get())*10000)/100)
@@ -123,9 +126,9 @@ class Worker(Thread):
     def __updateInterface(self):
         #interface=self.__interfaceObjects.winfo_children()
         #interface[0],isActive=self.getStatus()
-        self.__interfaceObjects.threadStatus,isActive=self.getStatus()
-        if isActive:
-            pass
+        self.getStatus()
+        if self.__isActive:
+            self.__interfaceObjects.showProgress()
             #writtenBytes = size of target's copy.
             #
     #END def __updateInterface

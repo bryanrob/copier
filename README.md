@@ -38,9 +38,18 @@ You can either set this up using standard Python3 (ver. 3.11+).
   - To deactivate on Windows, use `deactivate`.
 5) Install dependencies.
   - If you have created a virtual environment, make sure to activate it beforehand.
-  - `pip install -r requirements.txt`
-6) When everything is installed properly, you can begin wrapping:
-  - 
+  - To install the requirements, use: `pip install -r requirements.txt`
+6) When everything is installed properly, you can begin wrapping the GUI app into an EXE file:
+  - This should allow the program to be usable across **most** Windows devices that do not have this program's dependencies pre-installed.
+    - You can wrap to an external storage device for a portable version of this program.
+  - The wrapper (`pyinstaller`) must point to the included `/versionData/` folder, as well as the installation paths for `customtkinter` and `tkfilebrowser`.
+  - The command below is a template for you to modify to your system's needs.
+  ```
+  pyinstaller --noconfirm --onedir --add-data "./versionData;versionData/" --add-data "<Path to CustomTKinter>;customtkinter/" --add-data "<Path to TKFileBrowser>;tkfilebrowser/" .\main.pyw
+  ```
+  - If you are on Windows, you can use either of the following Batch scripts depending on how your environment has been set up up to this point:
+    - If you used a virtual environment, use `_win_packager_venv.bat`.
+    - If you did **not** use a virtual environment, use `_win_packager.bat`.
 
 ## Project Developers
 - [Robert (bryanrob)](https://github.com/bryanrob)

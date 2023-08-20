@@ -1,0 +1,1 @@
+pyinstaller --noconfirm --onedir --windowed --add-data "./versionData;versionData/" --add-data "./copier_venv/Lib/site-packages/customtkinter;customtkinter/" --add-data "./copier_venv/Lib/site-packages/tkfilebrowser;tkfilebrowser/" .\main.pyw

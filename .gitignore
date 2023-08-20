@@ -1,6 +1,6 @@
 __pycache__
 build
-copier_env
+copier_venv
 dist
 test
 _win_packaget.bat

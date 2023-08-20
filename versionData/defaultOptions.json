@@ -1,0 +1,8 @@
+{
+    "job-type":"Copy",
+    "log" : false,
+    "logType" : "None",
+    "logDest" : "",
+    "fileConflictMode" : 0,
+    "threads" : 4
+}
