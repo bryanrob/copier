@@ -2,7 +2,8 @@ __pycache__
 build
 copier_venv
 dist
-test
+test/dest
+custom_test
 _win_packaget.bat
 log.csv
 main.spec
