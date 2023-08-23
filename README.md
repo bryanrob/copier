@@ -51,5 +51,30 @@ You can either set this up using standard Python3 (ver. 3.11+).
     - If you used a virtual environment, use `_win_packager_venv.bat`.
     - If you did **not** use a virtual environment, use `_win_packager.bat`.
 
+## Use
+### CLI
+Run the `copier.py` script within your terminal:
+```python
+python ./copier.py -s:["<source files/directories>"] -d:"<destination directories>" <additional flags>
+```
+The following is a list of the currently implemented flags.  Marked flags have a shortened version being one dash (-) followed by its first letter.
+- `--sources:[<path(s)>] / -s` The sources that you want to copy.
+  - The argument is an array containing the paths to each source file/directory.
+- `--destination:<path> / -d` The destination in which you want to send your copied files to.
+  - The argument is a single path string to the destination directory.
+- `--job-type:<string> / -j` The process that you want to execute, such as a copy or move operation.
+  - The argument is a single string that can be either `Copy` or `Move`.
+- `--log-destination:<path> / -l` The path to the log file.  Automatically enables logging when called.
+  - The argument is the path to the file where the log will be saved to.  No arg defaults to the destination directory.
+- `--hash-algorithm:<string> / -h` The hashing algorithm to be used in the logs.
+  - The argument is the name of the hashing algorithm, being any one of the following: `None`, `MD5`, `SHA256`, `SHA512`, `SipHash`.
+- `--thread-count:<int> / -t` The amount of threads that will be created for this job.
+  - The argument is an integer number.  The GUI limit is 16, but __the CLI has no built-in limit__.
+- `--conflict:<int> / -c` The response to encountering a file with the exact same filename in the destination directory.
+  - The argument is an integer, with `0` doing nothing, `1` always replacing the file in the destination and `2` only replacing the file in the destination if the source file was modified at a later date.
+
+### GUI
+Work in progress.
+
 ## Project Developers
 - [Robert (bryanrob)](https://github.com/bryanrob)

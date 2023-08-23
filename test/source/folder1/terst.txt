@@ -1,0 +1,1 @@
+If this text is legible from within the destination directory, then the copying process worked!
