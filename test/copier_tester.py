@@ -14,7 +14,7 @@ def test1():
     ]
     destination=f"{thisPath}/dest"
 
-    command=f"python \"{copierPath}\" -s:{sources} -d:\"{destination}\""
+    command=f"python \"{copierPath}\" -s:{sources} -d:\"{destination}\" -l:"
 
     print(f"\tCommand text:\n{command}")
     output=os.system(command)
