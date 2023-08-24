@@ -4,5 +4,6 @@
     "logType" : "None",
     "logDest" : "",
     "fileConflictMode" : 0,
-    "threads" : 4
+    "threads" : 4,
+    "retry" : 10
 }

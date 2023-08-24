@@ -1,6 +1,11 @@
 # Copier
+*Name is subject to change.*
+
 ## Summary
 A file copying python script for ensuring that files are properly replicated.
+
+## Disclaimer
+This project is *very* much in development.  Some features are missing, and those that are currently implemented **may not work as intended**.
 
 ## Setup
 If you want to build the program yourself, follow the steps below.
@@ -65,13 +70,15 @@ The following is a list of the currently implemented flags.  Marked flags have a
 - `--job-type:<string> / -j` The process that you want to execute, such as a copy or move operation.
   - The argument is a single string that can be either `Copy` or `Move`.
 - `--log-destination:<path> / -l` The path to the log file.  Automatically enables logging when called.
-  - The argument is the path to the file where the log will be saved to.  No arg defaults to the destination directory.
+  - The argument is the path to the file where the log will be saved to.  Adding no argument defaults to the destination directory.
 - `--hash-algorithm:<string> / -h` The hashing algorithm to be used in the logs.
   - The argument is the name of the hashing algorithm, being any one of the following: `None`, `MD5`, `SHA256`, `SHA512`, `SipHash`.
 - `--thread-count:<int> / -t` The amount of threads that will be created for this job.
   - The argument is an integer number.  The GUI limit is 16, but __the CLI has no built-in limit__.
 - `--conflict:<int> / -c` The response to encountering a file with the exact same filename in the destination directory.
   - The argument is an integer, with `0` doing nothing, `1` always replacing the file in the destination and `2` only replacing the file in the destination if the source file was modified at a later date.
+- `--retry:int / -r` If a task fails, repeat for the given amount or until it succeeds.
+  - The argument is an integer that is greater than 0.
 
 ### GUI
 Work in progress.
