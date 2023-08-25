@@ -9,7 +9,7 @@ def test1():
     thisPath=os.path.dirname(__file__)
     copierPath=os.path.abspath(f"{thisPath}/../copier.py")
 
-    sources=[#Sources should be enclosed with ["] characters to avoid spacing issues.
+    sources=[#Sources should be enclosed with ["] characters to avoid space-break issues.
         f"\"{thisPath}/source\""
     ]
     destination=f"{thisPath}/dest"

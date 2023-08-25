@@ -1,6 +1,15 @@
 # Copier
 *Name is subject to change.*
 
+## Table of Contents
+- [Summary](#summary)
+- [Disclaimer](#disclaimer)
+- [Setup](#setup)
+- [Use](#use)
+  - [CLI](#cli)
+  - [GUI](#gui)
+- [Project Developers](#project-developers)
+
 ## Summary
 A file copying python script for ensuring that files are properly replicated.
 
@@ -64,24 +73,28 @@ python ./copier.py -s:["<source files/directories>"] -d:"<destination directorie
 ```
 The following is a list of the currently implemented flags.  Marked flags have a shortened version being one dash (-) followed by its first letter.
 - `--sources:[<path(s)>] / -s` The sources that you want to copy.
-  - The argument is an array containing the paths to each source file/directory.
+  - The argument must be an array containing the paths to each source file/directory.
 - `--destination:<path> / -d` The destination in which you want to send your copied files to.
-  - The argument is a single path string to the destination directory.
+  - The argument must be a single path string to the destination directory.
 - `--job-type:<string> / -j` The process that you want to execute, such as a copy or move operation.
-  - The argument is a single string that can be either `Copy` or `Move`.
+  - The argument must be a single string that can be either `Copy` or `Move`.
 - `--log-destination:<path> / -l` The path to the log file.  Automatically enables logging when called.
-  - The argument is the path to the file where the log will be saved to.  Adding no argument defaults to the destination directory.
+  - The argument can be the path to the file where the log will be saved to.  Adding no argument defaults to the destination directory.
 - `--hash-algorithm:<string> / -h` The hashing algorithm to be used in the logs.
-  - The argument is the name of the hashing algorithm, being any one of the following: `None`, `MD5`, `SHA256`, `SHA512`, `SipHash`.
+  - The argument must be the name of the hashing algorithm, being any one of the following: `None`, `MD5`, `SHA256`, `SHA512`, `SipHash`.
 - `--thread-count:<int> / -t` The amount of threads that will be created for this job.
-  - The argument is an integer number.  The GUI limit is 16, but __the CLI has no built-in limit__.
+  - The argument must be an integer number.  The GUI limit is 16, but __the CLI has no built-in limit__.
 - `--conflict:<int> / -c` The response to encountering a file with the exact same filename in the destination directory.
-  - The argument is an integer, with `0` doing nothing, `1` always replacing the file in the destination and `2` only replacing the file in the destination if the source file was modified at a later date.
+  - The argument must be an integer, with `0` doing nothing, `1` always replacing the file in the destination and `2` only replacing the file in the destination if the source file was modified at a later date.
 - `--retry:int / -r` If a task fails, repeat for the given amount or until it succeeds.
-  - The argument is an integer that is greater than 0.
+  - The argument must be an integer that is greater than 0.
+- `--wait:int / -w` Works with `retry`.  If a task fails, wait the given amount of milliseconds until the next attempt is made.
+  - The argument must be an integer that is equal to or greater than 0.
 
 ### GUI
 Work in progress.
 
 ## Project Developers
 - [Robert (bryanrob)](https://github.com/bryanrob)
+
+[Top of README.md](#copier)

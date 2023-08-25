@@ -1,7 +1,7 @@
 from threading import Thread
 from queue import Queue
 #from hashlib import md5,sha256,sha512
-import os,shutil,sqlite3,hashlib
+import os,shutil,sqlite3,hashlib,time
 
 class Task:
     """
@@ -75,24 +75,27 @@ class CopierThread(Thread):
     def run(self) -> None:
         self.__continue=True
         while self.__continue:
+            attemptCounter=0
             self.__currentTask=self.__queuePointer.get()
             
+            timerStart=time.time_ns()
+
             destFile:os.DirEntry
             destFile=os.path.normpath(f"{self.__currentTask.destination}/{self.__currentTask.source.name}")
+ 
+            logSource=os.path.abspath(self.__currentTask.source)
+            logDest=os.path.abspath(destFile)
 
             #Get hash of source file.
+            hashSource=self.__HasherPointer.chceksum(self.__currentTask.source)
+            hashDest="None"
 
-            #TODO:
-            #Check if file confliction exists.  If so, apply the appropriate response.
+            actionStatus="Failure"
             logStatement="Unknown Error."
             conflictionStatus=""
             logAction=self.__currentTask.jobType
-            actionStatus="Succeeded"
-            logSource=os.path.abspath(self.__currentTask.source)
-            logDest=os.path.abspath(destFile)
+
             execute=True
-            hashSource=self.__HasherPointer.chceksum(self.__currentTask.source)
-            hashDest="None"
             if os.path.exists(destFile):
                 hashDest=self.__HasherPointer.chceksum(destFile)
                 conflictionStatus="Confliction encountered: "
@@ -107,61 +110,76 @@ class CopierThread(Thread):
             else:
                 conflictionStatus=""
             if execute:
-                #Check copy mode flag and apply the appropriate responses according to the task type and the hashing flag(s).
-                if self.__currentTask.jobType=="Copy" or self.__currentTask.jobType=="Move":
-                    #If mode is copy, copy the item.
-                    #If mode is move, copy the item, then add a new task to the queue to delete the source file.
-                    try:
-                        shutil.copy2(self.__currentTask.source,self.__currentTask.destination)
-                        #Get hash of copied file.  If the hash does not match the source, retry the copy.
-                        hashDest=self.__HasherPointer.chceksum(destFile)
+                notComplete=True
+                while attemptCounter<self.__options.get("retry",1):
+                    #Check copy mode flag and apply the appropriate responses according to the task type and the hashing flag(s).
+                    if self.__currentTask.jobType=="Copy" or self.__currentTask.jobType=="Move":
+                        #If mode is copy, copy the item.
+                        #If mode is move, copy the item, then add a new task to the queue to delete the source file.
+                        try:
+                            shutil.copy2(self.__currentTask.source,self.__currentTask.destination)
+                            #Get hash of copied file.  If the hash does not match the source, retry the copy.
+                            hashDest=self.__HasherPointer.chceksum(destFile)
+                            if hashSource==hashDest:
+                                logDest=os.path.abspath(destFile)
+                                actionStatus="Success"
+                                logStatement="Copy success."
+                                if self.__currentTask.jobType=="Move":
+                                    self.__currentTask.destination=destFile
+                                    self.__currentTask.jobType="Delete"
+                                    self.__queuePointer.put(self.__currentTask)
+                                    logStatement+="  Source marked for deletion."
+                                notComplete=False
+                            else:
+                                actionStatus="Failure"
+                                logStatement="Copy failed (checksum mismatch)."
+
+                        except OSError: #Currently, if an IO error occurs, skip this file.
+                            actionStatus="Failure"
+                            logStatement="Copy failed (check privileges/connection)!  Process skipped."
+                            #TODO:
+                            #Retry a set number of times.  If the task cannot be completed, log the error and move on.
+                    elif self.__currentTask.jobType=="Delete":
+                        #If mode is delete, delete the source file.
+                        #Validate that the destination file exists, then do a checksum.  If checksum passes, delete; otherwise, enter as new 'Move' task.
+                        hashDest=self.__HasherPointer.chceksum(self.__currentTask.destination)
+
                         if hashSource==hashDest:
-                            logDest=os.path.abspath(destFile)
-                            actionStatus="Success"
-                            logStatement="Copy success."
-                            if self.__currentTask.jobType=="Move":
-                                self.__currentTask.destination=destFile
-                                self.__currentTask.jobType="Delete"
-                                self.__queuePointer.put(self.__currentTask)
-                                logStatement+="  Source marked for deletion."
+                            try:
+                                os.remove(self.__currentTask.source)
+                                actionStatus="Success"
+                                logStatement="Deletion succeeded."
+                                notComplete=False
+                            except OSError:
+                                actionStatus="Failure"
+                                logStatement="Deletion failed (check privileges)!  Process skipped."
+                            #Log the result of the operation to the log DB.
                         else:
                             actionStatus="Failure"
-                            logStatement="Copy failed (checksum mismatch)."
-
-                    except OSError: #Currently, if an IO error occurs, skip this file.
-                        actionStatus="Failure"
-                        logStatement="Copy failed (check privileges/connection)!  Process skipped."
-                        #TODO:
-                        #Retry a set number of times.  If the task cannot be completed, log the error and move on.
-                elif self.__currentTask.jobType=="Delete":
-                    #If mode is delete, delete the source file.
-                    #Validate that the destination file exists, then do a checksum.  If checksum passes, delete; otherwise, enter as new 'Move' task.
-                    hashDest=self.__HasherPointer.chceksum(self.__currentTask.destination)
-
-                    if hashSource==hashDest:
-                        try:
-                            os.remove(self.__currentTask.source)
-                            actionStatus="Success"
-                            logStatement="Deletion succeeded."
-                        except OSError:
-                            actionStatus="Failure"
-                            logStatement="Deletion failed (check privileges)!  Process skipped."
-                        #Log the result of the operation to the log DB.
+                            logStatement="Checksum mismatch; retrying move operation."
+                            self.__currentTask.destination=os.path.dirname(self.__currentTask.destination)
                     else:
-                        actionStatus="Failure"
-                        logStatement="Checksum mismatch; retrying move operation."
-                        self.__currentTask.destination=os.path.dirname(self.__currentTask.destination)
-                else:
-                    actionStatus="Failure."
-                    logStatement="Unknown job operation.  Process skipped."
+                        actionStatus="Failure."
+                        logStatement="Unknown job operation.  Process skipped."
+                    if notComplete:
+                        attemptCounter+=1
+                        time.sleep(self.__options.get("wait",0)/1000) #Convert int milliseconds to floating-point seconds.
+                    else:
+                        break
             else:
                 actionStatus="Success"
                 logStatement="Skip condition met.  Process skipped."
+                notComplete=False
             self.__queuePointer.task_done()
+            timerEnd=time.time_ns()
+
+            timerStartStr=time.ctime(timerStart/(10**9))
+            timerEndStr=time.ctime(timerEnd/(10**9))
+            
             #Submit log to the DB.
             with self.__dbConnection:
-                query=f"insert into Completed(action,status,description,source,src_checksum,destination,dest_checksum) values ('{logAction}','{actionStatus}','{conflictionStatus}{logStatement}','{logSource}','{hashSource}','{logDest}','{hashDest}')"
-                self.__dbConnection.execute(query)
+                query=f"insert into Completed(action,status,description,source,src_checksum,destination,dest_checksum,retries,time_started,unix_time_started,time_ended,unix_time_ended) values (?,?,?,?,?,?,?,?,?,?,?,?)"
+                self.__dbConnection.execute(query,(logAction,actionStatus,f"{conflictionStatus}{logStatement}",logSource,hashSource,logDest,hashDest,attemptCounter,timerStartStr,timerStart,timerEndStr,timerEnd))
         self.__dbConnection.close()
     #END def run
 
@@ -214,16 +232,21 @@ class CopierManager:
         db=sqlite3.connect(logDBPath)
         with db:
             db.cursor().execute(
-                "create table if not exists Completed (action varchar(8) not null,status varchar(8) not null,description varchar(256) not null,source varchar(4098) not null,src_checksum varchar(512),destination varchar(4098) not null,dest_checksum varchar(512));"
+                "create table if not exists Completed (action varchar(8) not null,status varchar(8) not null,description varchar(256) not null,retries tinyint not null,source varchar(4098) not null,src_checksum varchar(512),destination varchar(4098) not null,dest_checksum varchar(512),time_started varchar(24) not null,unix_time_started int not null,time_ended varchar(24) not null,unix_time_ended int not null);"
             )
             #Table name: Completed,
             #action : varchar(8) 
             #status : varchar(8)
             #description : varchar(256)
+            #retries : tinyint
             #source : varchar(4098)
             #src_checksum : varchar(512)
             #destination : varchar(4098)
             #dest_checksum : varchar(512)
+            #time_started : varchar(24)
+            #unix_time_started : int
+            #time_ended : varchar(24)
+            #unix_time_ended : int
 
         for thread in self.__threads:
             thread.setDB(logDBPath)
@@ -249,12 +272,13 @@ class CopierManager:
             logFile=os.path.normpath(f"{csvPath}/__log-file__.csv")
 
             with open(logFile,"w") as file:
-                cursor=db.execute("select * from Completed")
+                cursor=db.execute("select * from Completed order by unix_time_ended asc")
 
                 colNames=[desc[0] for desc in cursor.description]
                 file.write(f"{','.join(colNames)}\n") #Write the header first.
                 for row in cursor: #For each row in the table, write as a new line into the CSV file.
-                    file.write(f"{','.join(row)}\n")
+                    rowElements=[str(element) for element in row]
+                    file.write(f"{','.join(rowElements)}\n")
                 #cursor.close()
         #When the CSV file is created, delete the DB file(?).
         db.close()
@@ -313,7 +337,8 @@ def main():
         "--hash-algorithm":"logType",
         "--thread-count":"threads",
         "--conflict":"fileConflictMode",
-        "--retry":"retry"
+        "--retry":"retry",
+        "--wait":"wait"
     }
 
     shortenedFlags={f"-{flag[2]}":flag for flag in flags}
@@ -343,11 +368,15 @@ def main():
             options["log"]=True
             if param=="":
                 param=options["destination"]
-        elif actualFlag=="threads" or actualFlag=="retry" or actualFlag=="fileConflictMode":
-            param=int(param)
-            if param <= 0 and (actualFlag=="threads" or actualFlag=="retry"):
-                param=defaultOptions[actualFlag]
-
+        elif actualFlag=="threads" or actualFlag=="retry" or actualFlag=="fileConflictMode" or actualFlag=="wait":
+            try:
+                param=int(param)
+                if param <= 0 and (actualFlag=="threads" or actualFlag=="retry"):
+                    improperValue(arg,param)
+                elif param<0 and actualFlag=="wait":
+                    improperValue(arg,param)
+            except ValueError:
+                improperValue(arg,param)
         options[actualFlag]=param
     #print(options)
 
@@ -360,6 +389,11 @@ def improperArg(arg:str) -> None:
     print(f"FLAG ERROR: Unknown flag near: {arg}")
     sys.exit(1)
 #END def improperArg
+
+def improperValue(arg:str,param) -> None:
+    import sys
+    print(f"VALUE ERROR: Improper value entered near: {arg}:{param}")
+    sys.exit(2)
 
 if __name__=="__main__":
     main()

@@ -8,4 +8,5 @@ _win_packaget.bat
 log.csv
 main.spec
 options.json
+terst.py
 *.job.json
