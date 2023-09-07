@@ -6,6 +6,7 @@ test/dest
 custom_test
 _win_packaget.bat
 log.csv
+job.db
 main.spec
 options.json
 terst.py

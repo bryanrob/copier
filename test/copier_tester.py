@@ -14,7 +14,17 @@ def test1():
     ]
     destination=f"{thisPath}/dest"
 
-    command=f"python \"{copierPath}\" -s:{sources} -d:\"{destination}\" -l:"
+    #"--sources":"sources",
+    #"--destination":"destination",
+    #"--job-type":"job-type",
+    #"--log-destination":"logDest",
+    #"--hash-algorithm":"logType",
+    #"--thread-count":"threads",
+    #"--conflict":"fileConflictMode",
+    #"--retry":"retry",
+    #"--wait":"wait"
+
+    command=f"python \"{copierPath}\" -s:{sources} -d:\"{destination}\" -l: -r:1000 -w:10"
 
     print(f"\tCommand text:\n{command}")
     output=os.system(command)

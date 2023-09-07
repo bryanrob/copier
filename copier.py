@@ -11,8 +11,8 @@ class Task:
     destination : os.DirEntry #The path to the destination directory.
     jobType : str #The action to take with this task, i.e. "Copy", "Move" or "Delete".
 
-    def __init__(self,source:os.DirEntry,destination:os.DirEntry,jobType:str):
-        self.source=source
+    def __init__(self,target:os.DirEntry,destination:os.DirEntry,jobType:str):
+        self.source=target
         self.destination=destination
         self.jobType=jobType
     #END def __init__
@@ -95,6 +95,8 @@ class CopierThread(Thread):
             conflictionStatus=""
             logAction=self.__currentTask.jobType
 
+            #print(f"Task:\n\t{logSource=}\n\t{logDest=}\n\t{logAction=}")
+
             execute=True
             if os.path.exists(destFile):
                 hashDest=self.__HasherPointer.chceksum(destFile)
@@ -105,15 +107,15 @@ class CopierThread(Thread):
                 elif collisionMode==1 and hashSource==hashDest: #Overwrite the file existing in the destination.
                     execute=False
                 elif collisionMode==2 and hashSource==hashDest: #Only process the file if the source is newer than the destination.
-                    if self.__currentTask.source.stat().st_mtime>=destFile.stat().st_mtime:
+                    if os.stat(self.__currentTask.source).st_mtime>=os.stat(destFile).st_mtime:
                         execute=False
             else:
                 conflictionStatus=""
             if execute:
-                notComplete=True
+                #notComplete=True
                 while attemptCounter<self.__options.get("retry",1):
                     #Check copy mode flag and apply the appropriate responses according to the task type and the hashing flag(s).
-                    if self.__currentTask.jobType=="Copy" or self.__currentTask.jobType=="Move":
+                    if self.__currentTask.jobType in ["Copy","Move","Mirror"]:
                         #If mode is copy, copy the item.
                         #If mode is move, copy the item, then add a new task to the queue to delete the source file.
                         try:
@@ -129,7 +131,7 @@ class CopierThread(Thread):
                                     self.__currentTask.jobType="Delete"
                                     self.__queuePointer.put(self.__currentTask)
                                     logStatement+="  Source marked for deletion."
-                                notComplete=False
+                                #notComplete=False
                             else:
                                 actionStatus="Failure"
                                 logStatement="Copy failed (checksum mismatch)."
@@ -144,24 +146,45 @@ class CopierThread(Thread):
                         #Validate that the destination file exists, then do a checksum.  If checksum passes, delete; otherwise, enter as new 'Move' task.
                         hashDest=self.__HasherPointer.chceksum(self.__currentTask.destination)
 
+                        #Also, check if the targeted file is currently being used by another thread.  If so, then wait for that thread to finish its processing.
+                        #If the target & source does not exist in the database, then they have not finished processing within another thread.
+                        nrows=0
+                        while nrows<=0:
+                            nrows=self.__dbConnection.execute("select count(source) from Completed where source=?;",(os.path.abspath(self.__currentTask.source),)).fetchone()[0]
+                            #nrows=len([row for row in self.__dbConnection.execute(f"select source from Completed where source=(?);",(os.path.abspath(self.__currentTask.source),))])
+                            time.sleep((self.__options.get("wait",0)/1000)+0.5)
+
                         if hashSource==hashDest:
                             try:
                                 os.remove(self.__currentTask.source)
                                 actionStatus="Success"
                                 logStatement="Deletion succeeded."
-                                notComplete=False
+                                #notComplete=False
                             except OSError:
                                 actionStatus="Failure"
                                 logStatement="Deletion failed (check privileges)!  Process skipped."
                             #Log the result of the operation to the log DB.
                         else:
                             actionStatus="Failure"
-                            logStatement="Checksum mismatch; retrying move operation."
-                            self.__currentTask.destination=os.path.dirname(self.__currentTask.destination)
+                            logStatement="Checksum mismatch.  Process skipped."
+                            #self.__currentTask.destination=os.path.dirname(self.__currentTask.destination)
+                    elif self.__currentTask.jobType=="Delete-super":
+                        #print(f"Attempting to delete {os.path.abspath(self.__currentTask.source)}...")
+                        try:
+                            if os.path.isdir(self.__currentTask.source):
+                                os.rmdir(self.__currentTask.source)
+                            else:
+                                os.remove(self.__currentTask.source)
+                            actionStatus="Success"
+                            logStatement="Deletion succeeded."
+                        except OSError:
+                            actionStatus="Failure"
+                            logStatement="Deletion failed (check privileges)!  Process skipped."
+                    #END of self.__currentTask.jobType conditions.
                     else:
-                        actionStatus="Failure."
+                        actionStatus="Failure"
                         logStatement="Unknown job operation.  Process skipped."
-                    if notComplete:
+                    if actionStatus=="Failure":#notComplete:
                         attemptCounter+=1
                         time.sleep(self.__options.get("wait",0)/1000) #Convert int milliseconds to floating-point seconds.
                     else:
@@ -169,7 +192,7 @@ class CopierThread(Thread):
             else:
                 actionStatus="Success"
                 logStatement="Skip condition met.  Process skipped."
-                notComplete=False
+                #notComplete=False
             self.__queuePointer.task_done()
             timerEnd=time.time_ns()
 
@@ -178,8 +201,7 @@ class CopierThread(Thread):
             
             #Submit log to the DB.
             with self.__dbConnection:
-                query=f"insert into Completed(action,status,description,source,src_checksum,destination,dest_checksum,retries,time_started,unix_time_started,time_ended,unix_time_ended) values (?,?,?,?,?,?,?,?,?,?,?,?)"
-                self.__dbConnection.execute(query,(logAction,actionStatus,f"{conflictionStatus}{logStatement}",logSource,hashSource,logDest,hashDest,attemptCounter,timerStartStr,timerStart,timerEndStr,timerEnd))
+                self.__dbConnection.execute("insert into Completed(action,status,description,source,src_checksum,destination,dest_checksum,retries,time_started,unix_time_started,time_ended,unix_time_ended) values (?,?,?,?,?,?,?,?,?,?,?,?)",(logAction,actionStatus,f"{conflictionStatus}{logStatement}",logSource,hashSource,logDest,hashDest,attemptCounter,timerStartStr,timerStart,timerEndStr,timerEnd))
         self.__dbConnection.close()
     #END def run
 
@@ -213,11 +235,16 @@ class CopierManager:
     __threads : list[CopierThread]
     __Hasher : Hasher
     __options : dict
+    #__mirrorMode = False
 
     def __init__(self,options:dict):
         self.__options=options
         self.__queue=Queue(maxsize=options.get("queue-maximum",250000))
         self.__Hasher=Hasher(options.get("logType","None"))
+
+        if options.get("job-type","Copy")=="Mirror":
+            self.__options["fileConflictMode"]=2 #Mirror mode overwrites if the source is newer.
+        #    self.__mirrorMode=True
 
         self.__threads=[CopierThread(self.__queue,self.__Hasher,options) for thread in range(options.get("threads",1))]
     #END def __init__
@@ -226,6 +253,8 @@ class CopierManager:
         """
         Begins processing the files from the `sources` paths, inserting them into the `destination` directory.
         """
+        timerStart=time.time_ns()
+
         #Pass the path of the DB file to the threads.
         #dbLog=None
         logDBPath=os.path.normpath(f"{destination}/job.db")
@@ -258,6 +287,10 @@ class CopierManager:
             destinationPath=os.path.abspath(f"{destination}/{os.path.basename(sourcePath)}")
             for task in self.__listDirs(sourcePath,destinationPath):
                 self.__queue.put(task)
+        
+        if self.__options.get("job-type","Copy")=="Mirror":
+            for task in self.__removeMissingDirs(sources,destination):
+                self.__queue.put(task)
 
         self.__queue.join()
 
@@ -265,6 +298,34 @@ class CopierManager:
             thread.kill()
         for thread in self.__threads:
             thread.join()
+        
+        timerEnd=time.time_ns()
+
+        timerStartStr=time.ctime(timerStart/(10**9))
+        timerEndStr=time.ctime(timerEnd/(10**9))
+
+        #Create the string for the log summary.
+        totalSuccess,totalFail,totalRows,totalRetry=0,0,0,0
+        mainStatus="Unknown"
+        mainStatement="An unknown error has occurred."
+        with db:
+            cursor=db.execute("select successes,failures,count(source) as total_operations,sum(retries) as total_retries from Completed,(select count(status) as successes from Completed where status='Success'),(select count(status) as failures from Completed where status='Failure')")
+            rowData=[row for row in cursor][0]
+            totalSuccess=rowData[0]
+            totalFail=rowData[1]
+            totalRetry=rowData[3]
+
+            if totalSuccess>0 and totalFail>0:
+                mainStatus="Mixed"
+                mainStatement=f"Over {rowData[2]} actions, {totalSuccess} succeeded & {totalFail} failed."
+            elif totalSuccess>0 and totalFail==0:
+                mainStatus="Success"
+                mainStatement=f"All {rowData[2]} actions succeeded."
+            elif totalSuccess==0 and totalFail>0:
+                mainStatus="Failure"
+                mainStatement=f"All {rowData[2]} actions failed."
+
+        mainLogEntry=f"Main,{mainStatus},{mainStatement},{totalRetry},{sources},,{destination},,{timerStartStr},{timerStart},{timerEndStr},{timerEnd}"
 
         #Write the transactions from the log DB file to a CSV file (if applicable).
         csvPath=self.__options.get("logDest",None)
@@ -275,7 +336,7 @@ class CopierManager:
                 cursor=db.execute("select * from Completed order by unix_time_ended asc")
 
                 colNames=[desc[0] for desc in cursor.description]
-                file.write(f"{','.join(colNames)}\n") #Write the header first.
+                file.write(f"{','.join(colNames)}\n{mainLogEntry}\n") #Write the header & log summary first.
                 for row in cursor: #For each row in the table, write as a new line into the CSV file.
                     rowElements=[str(element) for element in row]
                     file.write(f"{','.join(rowElements)}\n")
@@ -285,7 +346,7 @@ class CopierManager:
 
         try:
             os.remove(logDBPath)
-            #stillOpen=False
+            #pass
         except OSError as error:
             print(f"\tFailed to remove Sqlite3 Database file at:\n{os.path.abspath(logDBPath)}\n\tReason:\n{str(error)}")
     #END def startJob
@@ -307,7 +368,59 @@ class CopierManager:
                     yield from self.__listDirs(directory,newDest)
             else:
                 yield Task(directory,destination,self.__options.get("job-type","Copy"))
-    #END def listDirs
+    #END def __listDirs
+  
+    def __removeMissingDirs(self,sources:list[os.DirEntry],destination:os.DirEntry) -> Task:
+        """
+        Walks the paths in the destination and returns files & folders that are within the destination and not within the source.
+        """
+        def searchSubDirs(source:os.DirEntry,destination:os.DirEntry) -> Task:
+            """
+            Recursive extension of __searchDirs.
+            """
+            condition="Delete-super"
+
+            for directory in os.scandir(destination):
+                sourcePath=os.path.join(source,os.path.basename(directory))
+                #If the path exists in both the destination and main, continue the scan from within the path.
+                if directory.is_dir() and os.path.exists(sourcePath):
+                    newDest=os.path.join(destination,os.path.basename(directory))
+                    newSrc=os.path.join(source,os.path.basename(directory))
+                    yield from searchSubDirs(newSrc,newDest)
+                #If the path is a folder and doesn't exist in the source, return this path and all paths from within it.
+                elif directory.is_dir() and not os.path.exists(sourcePath):
+                    for dir in os.scandir(directory):
+                        if dir.is_dir():
+                            #Yield files from `dir`...
+                            for file in delPaths(dir): 
+                                yield Task(file,os.path.join(sourcePath,os.path.basename(dir),os.path.basename(file)),condition)
+                        #Yield path of `dir`.
+                        yield Task(dir,os.path.join(sourcePath,os.path.basename(dir)),condition)
+                    #Yield path of `directory`.
+                    yield Task(directory,sourcePath,condition) 
+                else:
+                    #Otherwise, check if the source path exists.  If not, the destination path.
+                    srcPath=os.path.join(source,os.path.basename(directory))
+                    if not os.path.exists(srcPath):
+                        yield Task(directory,srcPath,condition)
+        #END def __searchDirs
+
+        def delPaths(path:os.DirEntry) -> str:
+            """
+            Returns all paths from within the given directory, then returns the directory itself.
+            """
+            for dir in os.scandir(path):
+                if dir.is_dir():
+                    yield from delPaths(dir)
+                yield Task(dir)
+        #END def __delPaths
+
+        for source in sources:
+            for task in searchSubDirs(source,os.path.join(destination,os.path.basename(source))):
+                yield task
+    #END def __removeMissingDirs
+
+
 #END class CopierManager
 
 def main():
@@ -394,6 +507,7 @@ def improperValue(arg:str,param) -> None:
     import sys
     print(f"VALUE ERROR: Improper value entered near: {arg}:{param}")
     sys.exit(2)
+#END def improperValue
 
 if __name__=="__main__":
     main()
