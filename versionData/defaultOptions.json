@@ -6,5 +6,6 @@
     "fileConflictMode" : 0,
     "threads" : 4,
     "retry" : 10,
-    "wait" : 10
+    "wait" : 10,
+    "ignoreOldJob":false
 }

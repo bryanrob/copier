@@ -1,7 +1,7 @@
 from threading import Thread
 from queue import Queue
 #from hashlib import md5,sha256,sha512
-import os,shutil,sqlite3,hashlib,time
+import os,json,shutil,sqlite3,hashlib,time
 
 class Task:
     """
@@ -50,7 +50,6 @@ class Hasher:
             else:
                 return checksum.hexdigest()
     #END def checksum
-
 #END class Hasher
 
 class CopierThread(Thread):
@@ -77,7 +76,7 @@ class CopierThread(Thread):
         while self.__continue:
             attemptCounter=0
             self.__currentTask=self.__queuePointer.get()
-            
+
             timerStart=time.time_ns()
 
             destFile:os.DirEntry
@@ -131,7 +130,6 @@ class CopierThread(Thread):
                                     self.__currentTask.jobType="Delete"
                                     self.__queuePointer.put(self.__currentTask)
                                     logStatement+="  Source marked for deletion."
-                                #notComplete=False
                             else:
                                 actionStatus="Failure"
                                 logStatement="Copy failed (checksum mismatch)."
@@ -151,15 +149,14 @@ class CopierThread(Thread):
                         nrows=0
                         while nrows<=0:
                             nrows=self.__dbConnection.execute("select count(source) from Completed where source=?;",(os.path.abspath(self.__currentTask.source),)).fetchone()[0]
-                            #nrows=len([row for row in self.__dbConnection.execute(f"select source from Completed where source=(?);",(os.path.abspath(self.__currentTask.source),))])
                             time.sleep((self.__options.get("wait",0)/1000)+0.5)
 
                         if hashSource==hashDest:
                             try:
-                                os.remove(self.__currentTask.source)
+                                self.__delete(self.__currentTask.source)
+                                #os.remove(self.__currentTask.source)
                                 actionStatus="Success"
                                 logStatement="Deletion succeeded."
-                                #notComplete=False
                             except OSError:
                                 actionStatus="Failure"
                                 logStatement="Deletion failed (check privileges)!  Process skipped."
@@ -169,12 +166,15 @@ class CopierThread(Thread):
                             logStatement="Checksum mismatch.  Process skipped."
                             #self.__currentTask.destination=os.path.dirname(self.__currentTask.destination)
                     elif self.__currentTask.jobType=="Delete-super":
+                        #If mode is delete-super, delete the source file without any validation check.
+                        #Only used with the mirror flag, in the case that a file in the job's destination does not appear in the job sources.
                         #print(f"Attempting to delete {os.path.abspath(self.__currentTask.source)}...")
                         try:
-                            if os.path.isdir(self.__currentTask.source):
-                                os.rmdir(self.__currentTask.source)
-                            else:
-                                os.remove(self.__currentTask.source)
+                            self.__delete(self.__currentTask.source)
+                            #if os.path.isdir(self.__currentTask.source):
+                            #    os.rmdir(self.__currentTask.source)
+                            #else:
+                            #    os.remove(self.__currentTask.source)
                             actionStatus="Success"
                             logStatement="Deletion succeeded."
                         except OSError:
@@ -192,7 +192,6 @@ class CopierThread(Thread):
             else:
                 actionStatus="Success"
                 logStatement="Skip condition met.  Process skipped."
-                #notComplete=False
             self.__queuePointer.task_done()
             timerEnd=time.time_ns()
 
@@ -206,6 +205,9 @@ class CopierThread(Thread):
     #END def run
 
     def kill(self) -> None:
+        """
+        Allows this thread to terminate at the end of it's current operation.
+        """
         self.__continue=False
         #self.__dbConnection.close()
     #END def kill
@@ -223,6 +225,16 @@ class CopierThread(Thread):
         if self.__dbConnection is not None:
             self.__dbConnection.close()
     #END def closeDB
+
+    def __delete(self,target:str):
+        """
+        Deletes whatever is found at the `target` path.
+        """
+        if os.path.isdir(target):
+            os.rmdir(target)
+        else:
+            os.remove(target)
+    #END def __delete
 #END class CopierThread
 
 class CopierManager:
@@ -238,16 +250,48 @@ class CopierManager:
     #__mirrorMode = False
 
     def __init__(self,options:dict):
+        self.setOptions(options)
+        #self.__options=options
+        #self.__queue=Queue(maxsize=options.get("queue-maximum",250000))
+        #self.__Hasher=Hasher(options.get("logType","None"))
+
+        #if options.get("job-type","Copy")=="Mirror":
+        #    self.__options["fileConflictMode"]=2 #Mirror mode overwrites if the source is newer.
+        #    self.__mirrorMode=True
+
+        #self.__threads=[CopierThread(self.__queue,self.__Hasher,options) for thread in range(options.get("threads",1))]
+    #END def __init__
+
+    def getPreviousOptions(self,destination:str) -> dict:
+        """
+        Checks if there was a previously-running job in the destination.  If there was, then it returns the `options` dictionary that was used for that job.  If there was no job, then this returns `None`.
+        """
+        logDBPath=os.path.normpath(f"{destination}/job.db")
+
+        if os.path.exists(logDBPath):
+            db=sqlite3.connect(logDBPath)
+
+            with db:
+                returnThis=json.loads(db.execute("select json from Options").fetchone()[0])
+            db.close()
+            return returnThis
+        else:
+            return None
+    #END def getPreviousOptions
+
+    def setOptions(self,options:dict) -> None:
+        """
+        Sets the `options` property of this object with the inbound argument, as well as reconfigures other attributes.
+        """
         self.__options=options
         self.__queue=Queue(maxsize=options.get("queue-maximum",250000))
         self.__Hasher=Hasher(options.get("logType","None"))
 
         if options.get("job-type","Copy")=="Mirror":
-            self.__options["fileConflictMode"]=2 #Mirror mode overwrites if the source is newer.
-        #    self.__mirrorMode=True
+            self.__options["fileConflictMode"]=2
 
         self.__threads=[CopierThread(self.__queue,self.__Hasher,options) for thread in range(options.get("threads",1))]
-    #END def __init__
+    #END def setOptions
 
     def startJob(self,sources:list[str],destination:str):
         """
@@ -256,26 +300,32 @@ class CopierManager:
         timerStart=time.time_ns()
 
         #Pass the path of the DB file to the threads.
-        #dbLog=None
         logDBPath=os.path.normpath(f"{destination}/job.db")
         db=sqlite3.connect(logDBPath)
         with db:
             db.cursor().execute(
-                "create table if not exists Completed (action varchar(8) not null,status varchar(8) not null,description varchar(256) not null,retries tinyint not null,source varchar(4098) not null,src_checksum varchar(512),destination varchar(4098) not null,dest_checksum varchar(512),time_started varchar(24) not null,unix_time_started int not null,time_ended varchar(24) not null,unix_time_ended int not null);"
+                    """create table if not exists Completed
+                    (
+                        action varchar(8) not null,
+                        status varchar(8) not null,
+                        description varchar(256) not null,
+                        retries tinyint not null,
+                        source varchar(4098) not null,
+                        src_checksum varchar(512),
+                        destination varchar(4098) not null,
+                        dest_checksum varchar(512),
+                        time_started varchar(24) not null,
+                        unix_time_started int not null,
+                        time_ended varchar(24) not null,
+                        unix_time_ended int not null
+                    );
+
+                    create table if not exists Options
+                    (
+                        json varchar(8196) not null
+                    );
+                    """
             )
-            #Table name: Completed,
-            #action : varchar(8) 
-            #status : varchar(8)
-            #description : varchar(256)
-            #retries : tinyint
-            #source : varchar(4098)
-            #src_checksum : varchar(512)
-            #destination : varchar(4098)
-            #dest_checksum : varchar(512)
-            #time_started : varchar(24)
-            #unix_time_started : int
-            #time_ended : varchar(24)
-            #unix_time_ended : int
 
         for thread in self.__threads:
             thread.setDB(logDBPath)
@@ -305,7 +355,7 @@ class CopierManager:
         timerEndStr=time.ctime(timerEnd/(10**9))
 
         #Create the string for the log summary.
-        totalSuccess,totalFail,totalRows,totalRetry=0,0,0,0
+        totalSuccess,totalFail,totalRetry=0,0,0
         mainStatus="Unknown"
         mainStatement="An unknown error has occurred."
         with db:
@@ -419,8 +469,6 @@ class CopierManager:
             for task in searchSubDirs(source,os.path.join(destination,os.path.basename(source))):
                 yield task
     #END def __removeMissingDirs
-
-
 #END class CopierManager
 
 def main():
@@ -433,14 +481,19 @@ def main():
     cmdArgs=sys.argv[1:]
 
     options:dict
-    options={"cli":True}
+    #Load the options variable with the default options found in the given directory.
     with open("./versionData/defaultOptions.json","r") as file:
         options=json.load(file)
+    options["cli"]=True
     defaultOptions=options.copy()
 
-    #noShortenedFlags={
-    #    "--log":"log"
-    #}
+    noargFlags=[
+        "--ignore-old-job"
+    ]
+
+    noShortenedFlags={
+        "--ignore-old-job":"ignoreOldJob"
+    }
 
     flags={
         "--sources":"sources",
@@ -458,18 +511,20 @@ def main():
 
     for arg in cmdArgs:
         splitArg=arg.split(":",1)
-        if len(splitArg)!=2:
+        if splitArg[0] in noargFlags:
+            flag,param=splitArg[0],True
+        elif len(splitArg)==2:
+            flag,param=splitArg[0],splitArg[1]
+        else:
             print(splitArg)
             improperArg(arg)
-        
-        flag,param=splitArg[0],splitArg[1]
 
         if flag in shortenedFlags.keys():
             actualFlag=flags[shortenedFlags[flag]]
         elif flag in flags.keys():
             actualFlag=flags[flag]
-        #elif flag in noShortenedFlags.keys():
-        #    actualFlag=noShortenedFlags[flag]
+        elif flag in noShortenedFlags.keys():
+            actualFlag=noShortenedFlags[flag]
         else:
             improperArg(arg)
 
@@ -494,6 +549,11 @@ def main():
     #print(options)
 
     manager=CopierManager(options)
+
+    previousFlags=manager.getPreviousOptions()
+    if previousFlags is not None and not options.get("ignoreOldJob",False):
+        manager.setOptions(previousFlags)
+
     manager.startJob(options["sources"],options["destination"])
 #END def main
 
