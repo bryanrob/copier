@@ -1,7 +1,7 @@
 from threading import Thread
 from queue import Queue
 #from hashlib import md5,sha256,sha512
-import os,json,shutil,sqlite3,hashlib,time
+import hashlib,json,os,shutil,sqlite3,time
 
 class Task:
     """
@@ -318,13 +318,24 @@ class CopierManager:
                         unix_time_started int not null,
                         time_ended varchar(24) not null,
                         unix_time_ended int not null
-                    );
+                    );"""     
+            )
 
+            db.cursor().execute("""
                     create table if not exists Options
                     (
+                        int_pointer tinyint not null primary key,
                         json varchar(8196) not null
-                    );
-                    """
+                    );"""               
+            )
+
+            db.cursor().execute("""
+                    insert into Options(int_pointer,json) values(?,?)
+                            on conflict (int_pointer) do update set
+                                json=excluded.json
+                    ;
+                    """,
+                    (1,json.dumps(self.__options))
             )
 
         for thread in self.__threads:
@@ -548,9 +559,9 @@ def main():
         options[actualFlag]=param
     #print(options)
 
-    manager=CopierManager(options)
+    manager=CopierManager(options.copy())
 
-    previousFlags=manager.getPreviousOptions()
+    previousFlags=manager.getPreviousOptions(options["destination"])
     if previousFlags is not None and not options.get("ignoreOldJob",False):
         manager.setOptions(previousFlags)
 
@@ -560,13 +571,13 @@ def main():
 def improperArg(arg:str) -> None:
     import sys
     print(f"FLAG ERROR: Unknown flag near: {arg}")
-    sys.exit(1)
+    sys.exit(2)
 #END def improperArg
 
 def improperValue(arg:str,param) -> None:
     import sys
     print(f"VALUE ERROR: Improper value entered near: {arg}:{param}")
-    sys.exit(2)
+    sys.exit(3)
 #END def improperValue
 
 if __name__=="__main__":
