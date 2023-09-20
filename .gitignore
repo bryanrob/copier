@@ -2,7 +2,9 @@ __pycache__
 build
 copier_venv
 dist
-test/dest
+test/dest/*
+test/fail_logs/*
+test/src_backup
 custom_test
 _win_packaget.bat
 log.csv

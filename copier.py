@@ -39,7 +39,7 @@ class Hasher:
             raise KeyError(f"Key {algorithm} not found.")
     #END def __init__
 
-    def chceksum(self,file:os.DirEntry) -> str:
+    def checksum(self,file:os.DirEntry) -> str:
         if self.__algorithmDict[self.__algorithm] is None:
             return str(os.path.exists(file))
         else:
@@ -86,7 +86,7 @@ class CopierThread(Thread):
             logDest=os.path.abspath(destFile)
 
             #Get hash of source file.
-            hashSource=self.__HasherPointer.chceksum(self.__currentTask.source)
+            hashSource=self.__HasherPointer.checksum(self.__currentTask.source)
             hashDest="None"
 
             actionStatus="Failure"
@@ -98,7 +98,7 @@ class CopierThread(Thread):
 
             execute=True
             if os.path.exists(destFile):
-                hashDest=self.__HasherPointer.chceksum(destFile)
+                hashDest=self.__HasherPointer.checksum(destFile)
                 conflictionStatus="Confliction encountered: "
                 collisionMode=self.__options.get("fileConflictMode",0)
                 if collisionMode==0 and hashSource==hashDest: #Do not process the file if set to 'Do nothing.'
@@ -120,7 +120,7 @@ class CopierThread(Thread):
                         try:
                             shutil.copy2(self.__currentTask.source,self.__currentTask.destination)
                             #Get hash of copied file.  If the hash does not match the source, retry the copy.
-                            hashDest=self.__HasherPointer.chceksum(destFile)
+                            hashDest=self.__HasherPointer.checksum(destFile)
                             if hashSource==hashDest:
                                 logDest=os.path.abspath(destFile)
                                 actionStatus="Success"
@@ -142,14 +142,16 @@ class CopierThread(Thread):
                     elif self.__currentTask.jobType=="Delete":
                         #If mode is delete, delete the source file.
                         #Validate that the destination file exists, then do a checksum.  If checksum passes, delete; otherwise, enter as new 'Move' task.
-                        hashDest=self.__HasherPointer.chceksum(self.__currentTask.destination)
+                        logDest=os.path.abspath(self.__currentTask.destination)
+                        hashDest=self.__HasherPointer.checksum(self.__currentTask.destination)
 
                         #Also, check if the targeted file is currently being used by another thread.  If so, then wait for that thread to finish its processing.
                         #If the target & source does not exist in the database, then they have not finished processing within another thread.
                         nrows=0
-                        while nrows<=0:
-                            nrows=self.__dbConnection.execute("select count(source) from Completed where source=?;",(os.path.abspath(self.__currentTask.source),)).fetchone()[0]
-                            time.sleep((self.__options.get("wait",0)/1000)+0.5)
+                        while nrows==0:
+                            nrows=int(self.__dbConnection.execute("select count(source) from Completed where source=?;",(os.path.abspath(self.__currentTask.source),)).fetchone()[0])
+                            time.sleep((self.__options.get("wait",0)/1000))
+                            #print(f"{nrows=}\nWaiting for:\n{os.path.abspath(self.__currentTask.source)}")
 
                         if hashSource==hashDest:
                             try:
@@ -320,7 +322,6 @@ class CopierManager:
                         unix_time_ended int not null
                     );"""     
             )
-
             db.cursor().execute("""
                     create table if not exists Options
                     (
@@ -328,7 +329,6 @@ class CopierManager:
                         json varchar(8196) not null
                     );"""               
             )
-
             db.cursor().execute("""
                     insert into Options(int_pointer,json) values(?,?)
                             on conflict (int_pointer) do update set
@@ -348,8 +348,14 @@ class CopierManager:
             destinationPath=os.path.abspath(f"{destination}/{os.path.basename(sourcePath)}")
             for task in self.__listDirs(sourcePath,destinationPath):
                 self.__queue.put(task)
-        
-        if self.__options.get("job-type","Copy")=="Mirror":
+
+        self.__queue.join()
+
+        if self.__options.get("job-type","Copy")=="Move":
+            for source in sources:
+                for task in self.__removeEmptyDirs(source,destination):
+                    self.__queue.put(task)
+        elif self.__options.get("job-type","Copy")=="Mirror":
             for task in self.__removeMissingDirs(sources,destination):
                 self.__queue.put(task)
 
@@ -359,7 +365,7 @@ class CopierManager:
             thread.kill()
         for thread in self.__threads:
             thread.join()
-        
+
         timerEnd=time.time_ns()
 
         timerStartStr=time.ctime(timerStart/(10**9))
@@ -430,6 +436,17 @@ class CopierManager:
             else:
                 yield Task(directory,destination,self.__options.get("job-type","Copy"))
     #END def __listDirs
+
+    def __removeEmptyDirs(self,source:os.DirEntry,destination:os.DirEntry) -> Task:
+        """
+        Walks through the paths within the `source` directory; marks the source folder and its children for deletion (beginning with its children).
+        """
+        for path in os.scandir(source):
+            if path.is_dir():
+                newDest=os.path.join(destination,os.path.basename(path))
+                yield from self.__removeEmptyDirs(path,newDest)
+                yield Task(path,destination,"Delete-super")
+    #END def __removeEmptyDirs
   
     def __removeMissingDirs(self,sources:list[os.DirEntry],destination:os.DirEntry) -> Task:
         """
