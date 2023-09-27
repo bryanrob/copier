@@ -27,17 +27,17 @@ def getResult(logData:dict,expectedStatus:str) -> bool:
     return str(logData["status"][0])==expectedStatus
 #END def getResult
 
-def copyFailedLog(iter:int,destination:str) -> None:
+def saveLogFile(iter:int,destination:str) -> None:
     """
     If a test failed without an exception, copy the resulting log file to the `fail_logs` folder.
     """
-    failLog=(f"{destination}/../fail_logs/__log-file__{iter}.csv")
+    failLog=(f"{destination}/../test_logs/__log-file__{iter}.csv")
     destLog=(f"{destination}/__log-file__.csv")
 
     with open(destLog,"r") as logSource:
         with open(failLog,"w") as logDest:
             logDest.write(logSource.read())
-#END def copyFailedLog
+#END def saveLogFile
 
 def test1(sources:list[str],destination:str) -> bool:
     """
@@ -93,6 +93,31 @@ def test2(sources:list[str],destination:str) -> bool:
     return result
 #END def test2
 
+def test3(sources:list[str],destination:str) -> bool:
+    """
+    Tests the functionality of the `Mirror` option.
+    """
+    clearDir(destination)
+
+    extraFolders=[
+        "folder0",
+        "folder5",
+        "folder10"
+    ]
+    for target in extraFolders:
+        for source in sources:
+            os.makedirs(os.path.abspath(os.path.join(os.path.join(destination,os.path.basename(source.strip("\""))),target)))
+
+    command=f"python \"{copierPath}\" -s:{sources} -d:\"{destination}\" -l: -j:Mirror -r:100 -w:10"    
+    print(f"\tCommand text:\n{command}")
+    output=os.system(command)
+    print(f"\n\tExit code: {output}")
+
+    logResult=getResult(parseLog(destination),"Success")
+
+    return logResult
+#END def test3
+
 #CLI flags:
     #With shortcuts:
     #"--sources":"sources",
@@ -118,7 +143,8 @@ if __name__=="__main__":
 
     tests={
         1:test1,
-        2:test2
+        2:test2,
+        3:test3
     }
 
     results={}
@@ -126,8 +152,8 @@ if __name__=="__main__":
         print(f"//START TEST #{i}//")
         try:
             results[i]=tests[i](sources,destination)
-            if not results[i]:
-                copyFailedLog(i,destination)
+            #if not results[i]:
+            saveLogFile(i,destination)
         except Exception as e:
             print(str(e))
             results[i]=False

@@ -3,10 +3,9 @@ build
 copier_venv
 dist
 test/dest/*
-test/fail_logs/*
+test/test_logs/*
 test/src_backup
 custom_test
-_win_packaget.bat
 log.csv
 job.db
 main.spec

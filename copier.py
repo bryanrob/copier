@@ -558,6 +558,8 @@ def main():
 
         if actualFlag=="sources": #Convert the string-formatted array into a literal array.
             param=literal_eval(param)
+            for i,v in enumerate(param):
+                param[i]=os.path.abspath(v.strip("\""))
         elif actualFlag=="logType":
             options["log"]=True
         elif actualFlag=="logDest":
