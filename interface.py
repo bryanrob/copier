@@ -1,12 +1,11 @@
 # <INSERT LICENSING CLAUSE HERE>
 
-#from typing import Optional, Tuple, Union
 import customtkinter as tk
 import tkfilebrowser
 import os
 import json
-from copy_processor import Manager,IndividualThreadWidget
-from interface_elements import packChildren
+from copier import CopierManager
+from interface_elements import packChildren,NumericEntry
 #from time import sleep
 
 versionData:dict
@@ -325,8 +324,8 @@ class Window(tk.CTk):
             jsonData={}
             for i,v in enumerate(this.__items):
                 jsonData[i]=v
+            this.options["job-type"]=this.jobType.get()
             jsonData["destination"]=this.textboxDestination.get()
-            #jsonData["copyType"]=this.jobType.get()
             jsonData["options"]=this.options
             with open(fileTarget,"w") as file:
                 json.dump(jsonData,file)
@@ -356,6 +355,7 @@ class Window(tk.CTk):
                 this.options[key]=jobFileOptions[key]
             del data
             this.__setItems()
+            this.jobType.set(this.options.get("job-type","Copy"))
             this.__disableWorkingBar()
     #END def loadJob
 
@@ -364,11 +364,11 @@ class Window(tk.CTk):
             this.__enableWorkingBar()
             this.toplevel=OptionsWindow(this)
             this.__disableWorkingBar()
-
         #this.toplevel.focus()
     #END def changeSettings
-    def setJobType(this) -> None:
+    def setJobType(this,*args) -> None:
         this.options["job-type"]=this.jobType.get()
+    #END def setJobType
     def startJob(this) -> None:
         if this.toplevel is None or not this.toplevel.winfo_exists():
             this.__enableWorkingBar()
@@ -550,11 +550,9 @@ class OptionsWindow(tk.CTkToplevel):
     """
     __fileConflictions = {
         "Do nothing.":0,
-        "Overwrite destination file.":1,
-        "Overwrite oldest file.":2
+        "Always overwrite.":1,
+        "Overwrite if older.":2
     }
-
-    #__options = {}
 
     def __init__(this,parent:Window,*args, **kwargs) -> None:
         super().__init__(*args,**kwargs)
@@ -564,7 +562,7 @@ class OptionsWindow(tk.CTkToplevel):
         this.title(f"{parent.programTitle} - Options")
         this.dimensions={
             "width":768,
-            "height":512#/1.85
+            "height":512
         }
         this.geometry(f"{this.dimensions['width']}x{this.dimensions['height']}")
         this.grid_rowconfigure(1,weight=1)
@@ -583,17 +581,17 @@ class OptionsWindow(tk.CTkToplevel):
 
         this.loggingOptionsFrame=tk.CTkFrame(this.mainFrame)
         this.loggingOptionsFrame.grid(row=0,column=0,sticky="nsew",padx=parent.pad,pady=parent.pad)
-        this.labelLoggingOptions=tk.CTkLabel(this.loggingOptionsFrame,text="Logging Options",font=parent.bodyFont)
+        this.labelLoggingOptions=tk.CTkLabel(this.loggingOptionsFrame,text="Logging Settings",font=parent.bodyFont)
         this.checkboxEnableLogging=tk.CTkCheckBox(this.loggingOptionsFrame,text="Enable Job Logging",font=parent.itemFont,command=this.__setButtonStates)
         this.labelLoggingHashTypes=tk.CTkLabel(this.loggingOptionsFrame,text="Logging Hash Type:",font=parent.itemFont)
         this.optionsLoggingHashType=tk.CTkOptionMenu(this.loggingOptionsFrame,values=["None","MD5","Sha256","Sha512","SipHash"])
         this.labelLogDirectory=tk.CTkLabel(this.loggingOptionsFrame,text="Log file location:",font=parent.itemFont)
-        this.setLogDirectory=tk.CTkFrame(this.loggingOptionsFrame)
+        this.setLogDirectory=tk.CTkFrame(this.loggingOptionsFrame,fg_color=this.loggingOptionsFrame.cget("fg_color"))
         this.entryLogDirectory=tk.CTkEntry(this.setLogDirectory,placeholder_text="Use <destination> dir.",width=this.dimensions["width"]/2.5)
         this.entryLogDirectory.pack(side=tk.LEFT)
         this.buttonBrowseLogDirectory=tk.CTkButton(this.setLogDirectory,text="Browse",width=70,font=parent.itemFont,command=this.__setLogDestination)
         this.buttonBrowseLogDirectory.pack(side=tk.LEFT)
-        this.labelDirectoryNotice=tk.CTkLabel(this.loggingOptionsFrame,text="If path above is empty or invalid, log file will be saved to job <destination>.",font=parent.itemFont,wraplength=(this.dimensions["width"]/2.5))
+        this.labelDirectoryNotice=tk.CTkLabel(this.loggingOptionsFrame,text="*If path above is empty or invalid, log file will be saved to job <destination>.",font=parent.itemFont,wraplength=(this.dimensions["width"]/2.5))
 
         packChildren(this.loggingOptionsFrame,padding={0:parent.pad,1:parent.pad})
 
@@ -603,7 +601,7 @@ class OptionsWindow(tk.CTkToplevel):
         this.labelConflictingFile=tk.CTkLabel(this.conflictingFrame,text="If file exists in both <source> & <destination>:",font=parent.itemFont)
         this.optionsConflictingFile=tk.CTkOptionMenu(this.conflictingFrame,width=this.conflictingFrame.cget("width"),values=[value for value in this.
         __fileConflictions.keys()])
-        this.labelCannotChangeConflict=tk.CTkLabel(this.conflictingFrame,text="",font=parent.itemFont,text_color="red")
+        this.labelCannotChangeConflict=tk.CTkLabel(this.conflictingFrame,text="",font=parent.itemFont,text_color="red",wraplength=(this.dimensions["width"]/2.5))
 
         packChildren(this.conflictingFrame,padding={0:parent.pad,1:parent.pad})
 
@@ -620,6 +618,22 @@ class OptionsWindow(tk.CTkToplevel):
         this.sliderThreadSetting=tk.CTkSlider(this.threadOptionsFrame,from_=1,to=16,number_of_steps=15,command=this.__setButtonStates)
 
         packChildren(this.threadOptionsFrame,padding={0:parent.pad,1:parent.pad})
+
+        this.miscOptionsFrame=tk.CTkFrame(this.mainFrame)
+        this.miscOptionsFrame.grid(row=1,column=1,sticky="nsew",padx=(0,parent.pad),pady=(0,parent.pad))
+        this.labelMiscOptions=tk.CTkLabel(this.miscOptionsFrame,text="Misc. Settings",font=parent.bodyFont)
+        this.retryOptionFrame=tk.CTkFrame(this.miscOptionsFrame,fg_color=this.miscOptionsFrame.cget("fg_color"))
+        this.labelRetryOption=tk.CTkLabel(this.retryOptionFrame,text="Retries on task failure:",font=parent.itemFont)
+        this.labelRetryOption.pack(side=tk.LEFT,padx=parent.pad/2)
+        this.retryOptionEntry=NumericEntry(this.retryOptionFrame,placeholder_text="0",font=parent.itemFont)
+        this.retryOptionEntry.pack(side=tk.RIGHT,padx=parent.pad/2)
+        this.waitOptionFrame=tk.CTkFrame(this.miscOptionsFrame,fg_color=this.miscOptionsFrame.cget("fg_color"))
+        this.labelWaitOption=tk.CTkLabel(this.waitOptionFrame,text="Delay retry for N milliseconds:",font=parent.itemFont)
+        this.labelWaitOption.pack(side=tk.LEFT,padx=parent.pad/2)
+        this.waitOptionEntry=NumericEntry(this.waitOptionFrame,placeholder_text="0",font=parent.itemFont)
+        this.waitOptionEntry.pack(side=tk.RIGHT,padx=parent.pad/2)
+
+        packChildren(this.miscOptionsFrame,padding={0:parent.pad,1:parent.pad})
 
         this.bottomOptionsFrame=tk.CTkFrame(this.mainFrame)
         this.bottomOptionsFrame.grid(row=2,column=0,columnspan=2,sticky="nsew",padx=parent.pad,pady=(0,parent.pad))
@@ -653,7 +667,7 @@ class OptionsWindow(tk.CTkToplevel):
         this.optionsConflictingFile.set(dictValFromKey(this.__master.options.get("fileConflictMode",0),this.__fileConflictions))
         if this.__master.jobType.get() not in ["Copy","Mirror"]: #If the job type is neither of the specified settings...
             this.optionsConflictingFile.configure(state="disabled")
-            this.labelCannotChangeConflict.configure(text="Setting ignored due to incompatible job type!")
+            this.labelCannotChangeConflict.configure(text="*This setting is unused with the selected job type!")
 
         this.sliderThreadSetting.set(this.__master.options.get("threads",4))
     #END def __loadButtonStates
@@ -743,9 +757,10 @@ class JobActivity(tk.CTkToplevel):
     """
 
     __master : Window
-    __threads : Manager
+    __threads :CopierManager
 
     threadBars : list[tk.CTkFrame]
+    dimensions : dict
 
     filesFinished=0
     filesInJob=0
@@ -823,8 +838,10 @@ class JobActivity(tk.CTkToplevel):
             #threadProgressBar.set(threadProgress.get())
             #this.packChildren(threadFrame,fill="x")
 
-            this.threadBars.append(IndividualThreadWidget(this.scrollThreadProgress,parent,this.dimensions,threadNum,fill="x"))
+            this.threadBars.append(ThreadWidget(this,threadNum,master=this.scrollThreadProgress))
         packChildren(this.scrollThreadProgress,padding={0:parent.pad,1:parent.pad},fill="both")
+        for widget in this.threadBars:
+            packChildren(widget,padding={0:parent.pad,1:parent.pad},fill="both")
 
         this.bottomFrame=tk.CTkFrame(this,height=5)
         this.bottomFrame.grid(row=2,column=0,sticky="ew")
@@ -842,7 +859,60 @@ class JobActivity(tk.CTkToplevel):
         this.topFrame.configure(fg_color=this.mainFrame.cget("fg_color"))
         this.bottomFrame.configure(fg_color=this.mainFrame.cget("fg_color"))
     #END def __unfocus
+
+    def getMaster(self) -> Window:
+        return self.__master
+    #END def getMaster
 #END class JobActivity
+
+class ThreadWidget(tk.CTkFrame):
+    #threadFrame=tk.CTkFrame(this.scrollThreadProgress)
+
+    #Vars
+    __status : str
+    __target : str
+    __written : int
+    __fileSize : int
+    #threadProgress:tk.DoubleVar(self,round((threadWritten.get()/threadFileSize.get())*10000)/100)
+
+    #Elements
+    label : tk.CTkLabel
+    progressBar : tk.CTkProgressBar
+    progressLabel:tk.CTkLabel
+
+    def __init__(self,mainFrame:JobActivity,threadNum,*args,**kargs):
+        #self.master : JobActivity
+
+        super().__init__(*args,**kargs)
+        
+        self.__status="Idle"
+        self.__target="None"
+        self.__written=0
+        self.__fileSize=1
+
+        self.label=tk.CTkLabel(self,text=f"Thread #{threadNum}\nTarget:\n{self.__target}",font=mainFrame.getMaster().itemFont,wraplength=mainFrame.dimensions["width"]-50)
+        self.progressBar=tk.CTkProgressBar(self,width=self.master.cget("width"))
+        self.progressBar.set(self.__written/self.__fileSize)
+        self.progressLabel=tk.CTkLabel(self,text=f"Progress: {self.getProgress()}%\n{self.__written} B/{self.__fileSize} B")
+    #END def __init__
+
+    def getProgress(self) -> float:
+        return round((self.__written/self.__fileSize)*10000)/100
+    #END def getProgress
+
+    def setStatus(self,value:bool) -> None:
+        self.__status="Working" if value else "Idle"
+    #END def setStatus
+    def setTarget(self,path:str) -> None:
+        self.__target=path
+    #END def setTarget
+    def setWritten(self,value:int) -> None:
+        self.__written=value
+    #END def setWritten
+    def setFileSize(self,value:int) -> None:
+        self.__fileSize=value
+    #END def setFileSize
+#END class ThreadWidget
 
 def main() -> None:
     tk.set_appearance_mode("system") 

@@ -173,10 +173,6 @@ class CopierThread(Thread):
                         #print(f"Attempting to delete {os.path.abspath(self.__currentTask.source)}...")
                         try:
                             self.__delete(self.__currentTask.source)
-                            #if os.path.isdir(self.__currentTask.source):
-                            #    os.rmdir(self.__currentTask.source)
-                            #else:
-                            #    os.remove(self.__currentTask.source)
                             actionStatus="Success"
                             logStatement="Deletion succeeded."
                         except OSError:
@@ -186,7 +182,7 @@ class CopierThread(Thread):
                     else:
                         actionStatus="Failure"
                         logStatement="Unknown job operation.  Process skipped."
-                    if actionStatus=="Failure":#notComplete:
+                    if actionStatus=="Failure":
                         attemptCounter+=1
                         time.sleep(self.__options.get("wait",0)/1000) #Convert int milliseconds to floating-point seconds.
                     else:

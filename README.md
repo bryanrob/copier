@@ -16,6 +16,8 @@ A file copying python script for ensuring that files are properly replicated.
 ## Disclaimer
 This project is *very* much in development.  Some features are missing, and those that are currently implemented **may not work as intended**.
 
+Furthermore, the GUI can only work with Windows for now.  The dependency for `tkfilebrowser` and `pywin32` is planned to be removed.
+
 ## Setup
 If you want to build the program yourself, follow the steps below.
 
@@ -39,8 +41,10 @@ The GUI (`inteface.py`) requires the following dependencies (also listed within 
     - The interface backbone for the GUI.
   tkfilebrowser (ver. 2.3.2)
     - A robust file-exploration system.
+    - A later update will remove this dependency for (hopefully) cross-OS support.
   pywin32 (ver. 306)
-    - A a dependency of customtkinter & tkfilebrowser.
+    - A a dependency of tkfilebrowser.
+    - A later update will remove this dependency for (hopefully) cross-OS support.
   pyinstaller (ver. 5.13.0)
     - A Python wrapper.
   ```
