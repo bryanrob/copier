@@ -86,8 +86,15 @@ You can either set this up using standard Python3 (ver. 3.11+).
 ## Use
 ### CLI
 Run the `copier.py` script within your terminal:
-```python
-python ./copier.py -s:["<source files/directories>"] -d:"<destination directories>" <additional flags>
+```
+python ./copier.py -s:"<source file/folder>" -d:"<destination directories>" <additional flags>
+```
+If you want to copy multiple files/directories, you can specify multiple sources OR use the `--sources` flag with a Pythonese list as an argument.
+```
+python ./copier.py -s:"<source file/folder 1>" -s:"<source file/folder 2>" -d:"<destination directories>" <additional flags>
+```
+```
+python ./copier.py --sources:["<source file(s)/folder(s)>"] -d:"<destination directories>" <additional flags>
 ```
 The following is a list of the currently implemented flags.  Marked flags have a shortened version being one dash (-) followed by its first letter.
 - `--sources:[<path(s)>] / -s` The sources that you want to copy.
