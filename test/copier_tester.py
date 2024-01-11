@@ -49,7 +49,7 @@ def test1(sources:list[str],destination:str) -> bool:
     #Clear the destination of all files beforehand.
     clearDir(destination)
 
-    command=f"python \"{copierPath}\" -s:{sources} -d:\"{destination}\" -l: -r:100 -w:10"
+    command=f"python \"{copierPath}\" --sources:{sources} -d:\"{destination}\" -l: -r:100 -w:10"
 
     print(f"\tCommand text:\n{command}")
     output=os.system(command)
@@ -67,7 +67,7 @@ def test2(sources:list[str],destination:str) -> bool:
     """
     clearDir(destination)
 
-    command=f"python \"{copierPath}\" -s:{sources} -d:\"{destination}\" -l: -j:Move -r:100 -w:10"    
+    command=f"python \"{copierPath}\" --sources:{sources} -d:\"{destination}\" -l: -j:Move -r:100 -w:10"    
     print(f"\tCommand text:\n{command}")
     output=os.system(command)
     print(f"\n\tExit code: {output}")
@@ -108,19 +108,56 @@ def test3(sources:list[str],destination:str) -> bool:
         for source in sources:
             os.makedirs(os.path.abspath(os.path.join(os.path.join(destination,os.path.basename(source.strip("\""))),target)))
 
-    command=f"python \"{copierPath}\" -s:{sources} -d:\"{destination}\" -l: -j:Mirror -r:100 -w:10"    
+    command=f"python \"{copierPath}\" --sources:{sources} -d:\"{destination}\" -l: -j:Mirror -r:100 -w:10"    
     print(f"\tCommand text:\n{command}")
     output=os.system(command)
     print(f"\n\tExit code: {output}")
 
-    logResult=getResult(parseLog(destination),"Success")
+    #logResult=getResult(parseLog(destination),"Success")
 
-    return logResult
+    return getResult(parseLog(destination),"Success")
 #END def test3
+
+def test4(sources:list[str],destination:str) -> bool:
+    """
+    Tests the functionality of the individual source flag.
+    """
+    clearDir(destination)
+
+    sourcesStr=""
+    for source in sources:
+        sourcesStr+=f"-s:{source} "
+    
+    command=f"python \"{copierPath}\" {sourcesStr} -d:\"{destination}\" -l: -j:Copy -r:100 -w:10"    
+    print(f"\tCommand text:\n{command}")
+    output=os.system(command)
+    print(f"\n\tExit code: {output}")
+
+    return getResult(parseLog(destination),"Success")
+#END def test4
+
+def test5(sources:list[str],destination:str) -> bool:
+    """
+    Same as `test4`, but with multiple iterations of the `--source` flag.
+    """
+    clearDir(destination)
+
+    sourcesStr=""
+    for source in sources:
+        for subDir in os.scandir(source.strip("\"")):
+            sourcesStr+=f"-s:\"{os.path.abspath(subDir)}\" "
+    
+    command=f"python \"{copierPath}\" {sourcesStr} -d:\"{destination}\" -l: -j:Copy -r:100 -w:10"    
+    print(f"\tCommand text:\n{command}")
+    output=os.system(command)
+    print(f"\n\tExit code: {output}")
+
+    return getResult(parseLog(destination),"Success")
+#END def test5
 
 #CLI flags:
     #With shortcuts:
-    #"--sources":"sources",
+    #"--source":"sources",
     #"--destination":"destination",
     #"--job-type":"job-type",
     #"--log-destination":"logDest",
@@ -130,6 +167,7 @@ def test3(sources:list[str],destination:str) -> bool:
     #"--retry":"retry",
     #"--wait":"wait"
     #Without shortcuts:
+    #"--sources":"sources",
     #"--ignore-old-job":"ignoreOldJob"
 
 if __name__=="__main__":
@@ -144,7 +182,9 @@ if __name__=="__main__":
     tests={
         1:test1,
         2:test2,
-        3:test3
+        3:test3,
+        4:test4,
+        5:test5
     }
 
     results={}

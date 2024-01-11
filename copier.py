@@ -3,6 +3,37 @@ from queue import Queue
 #from hashlib import md5,sha256,sha512
 import hashlib,json,os,shutil,sqlite3,time
 
+class Entry(os.PathLike):
+    """
+    A mini-class for substitution with Python's `os.DirEntry`.
+    """
+    name : str
+    path : str
+
+    def __init__(self,path : str) -> None:
+        self.name=os.path.basename(path)
+        self.path=os.path.dirname(path)
+    #END def __init__
+
+    def __fspath__(self):
+        return os.path.abspath(f"{self.path}/{self.name}")
+    #END def __fspath__
+
+    def __str__(self) -> str:
+        return os.path.join(self.name,self.path)
+    #END def __str__
+
+    def is_dir(self) -> bool:
+        return os.path.isdir(str(self))
+    #END def is_dir
+    def is_file(self) -> bool:
+        return os.path.isfile(str(self))
+    #END def is_file
+    def is_symlink(self) -> bool:
+        return os.path.islink(str(self))
+    #END def is_symlink
+#END class Entry
+
 class Task:
     """
     An encapsulation of a `Task` that a `CopierThread` will need to process from the queue filled within the `CopierManager` class.
@@ -16,6 +47,9 @@ class Task:
         self.destination=destination
         self.jobType=jobType
     #END def __init__
+        
+    def __str__(self):
+        return f"{self.source=}, {self.destination=}, {self.jobType=}"
 #END class Task
 
 class Hasher:
@@ -62,6 +96,7 @@ class CopierThread(Thread):
     __currentTask : Task
     __HasherPointer : Hasher
     __options : dict
+    __process_loop : bool
 
     def __init__(self,queuePointer:Queue[Task],HasherPointer:Hasher,options:dict) -> None:
         super().__init__()
@@ -69,11 +104,12 @@ class CopierThread(Thread):
         self.__dbConnection=None
         self.__HasherPointer=HasherPointer
         self.__options=options
+        self.__process_loop=True
     #END def __init__
 
     def run(self) -> None:
-        self.__continue=True
-        while self.__continue:
+        self.__process_loop=True
+        while self.__process_loop:
             attemptCounter=0
             self.__currentTask=self.__queuePointer.get()
 
@@ -94,6 +130,7 @@ class CopierThread(Thread):
             conflictionStatus=""
             logAction=self.__currentTask.jobType
 
+            #print(f"\n{str(self.__currentTask)}")
             #print(f"Task:\n\t{logSource=}\n\t{logDest=}\n\t{logAction=}")
 
             execute=True
@@ -111,7 +148,6 @@ class CopierThread(Thread):
             else:
                 conflictionStatus=""
             if execute:
-                #notComplete=True
                 while attemptCounter<self.__options.get("retry",1):
                     #Check copy mode flag and apply the appropriate responses according to the task type and the hashing flag(s).
                     if self.__currentTask.jobType in ["Copy","Move","Mirror"]:
@@ -137,8 +173,6 @@ class CopierThread(Thread):
                         except OSError: #Currently, if an IO error occurs, skip this file.
                             actionStatus="Failure"
                             logStatement="Copy failed (check privileges/connection)!  Process skipped."
-                            #TODO:
-                            #Retry a set number of times.  If the task cannot be completed, log the error and move on.
                     elif self.__currentTask.jobType=="Delete":
                         #If mode is delete, delete the source file.
                         #Validate that the destination file exists, then do a checksum.  If checksum passes, delete; otherwise, enter as new 'Move' task.
@@ -206,7 +240,7 @@ class CopierThread(Thread):
         """
         Allows this thread to terminate at the end of it's current operation.
         """
-        self.__continue=False
+        self.__process_loop=False
         #self.__dbConnection.close()
     #END def kill
 
@@ -216,6 +250,12 @@ class CopierThread(Thread):
         """
         self.__dbConnection=sqlite3.connect(db,check_same_thread=False) if db is not None else None
     #END def setDB
+    def getCurrentTask(self) -> Task:
+        """
+        Returns the `currentTask` data.
+        """
+        return self.__currentTask
+    #END def getCurrentTask
     def closeDB(self) -> None:
         """
         Closes any active DB connection.
@@ -248,16 +288,8 @@ class CopierManager:
     #__mirrorMode = False
 
     def __init__(self,options:dict):
+
         self.setOptions(options)
-        #self.__options=options
-        #self.__queue=Queue(maxsize=options.get("queue-maximum",250000))
-        #self.__Hasher=Hasher(options.get("logType","None"))
-
-        #if options.get("job-type","Copy")=="Mirror":
-        #    self.__options["fileConflictMode"]=2 #Mirror mode overwrites if the source is newer.
-        #    self.__mirrorMode=True
-
-        #self.__threads=[CopierThread(self.__queue,self.__Hasher,options) for thread in range(options.get("threads",1))]
     #END def __init__
 
     def getPreviousOptions(self,destination:str) -> dict:
@@ -282,7 +314,7 @@ class CopierManager:
         Sets the `options` property of this object with the inbound argument, as well as reconfigures other attributes.
         """
         self.__options=options
-        self.__queue=Queue(maxsize=options.get("queue-maximum",250000))
+        self.__queue=Queue(maxsize=options.get("queue-maximum",16777216))
         self.__Hasher=Hasher(options.get("logType","None"))
 
         if options.get("job-type","Copy")=="Mirror":
@@ -342,8 +374,16 @@ class CopierManager:
         for source in sources:
             sourcePath=os.path.abspath(source)
             destinationPath=os.path.abspath(f"{destination}/{os.path.basename(sourcePath)}")
-            for task in self.__listDirs(sourcePath,destinationPath):
-                self.__queue.put(task)
+            if os.path.isdir(sourcePath):
+                try:
+                    os.mkdir(destinationPath)
+                except:
+                    pass
+                for task in self.__listDirs(sourcePath,destinationPath):
+                    self.__queue.put(task)
+            else:
+                #print(f"Making file task targeting: {sourcePath}")
+                self.__queue.put(Task(Entry(sourcePath),destination,self.__options.get("job-type","Copy")))
 
         self.__queue.join()
 
@@ -388,7 +428,9 @@ class CopierManager:
                 mainStatus="Failure"
                 mainStatement=f"All {rowData[2]} actions failed."
 
-        mainLogEntry=f"Main,{mainStatus},{mainStatement},{totalRetry},{sources},,{destination},,{timerStartStr},{timerStart},{timerEndStr},{timerEnd}"
+        sourcesString = str([os.path.abspath(src) for src in sources]).replace('\\\\','\\').replace(",",";")
+        destinationString = os.path.abspath(destination)
+        mainLogEntry=f"Main,{mainStatus},{mainStatement},{totalRetry},{sourcesString},,{destinationString},,{timerStartStr},{timerStart},{timerEndStr},{timerEnd}"
 
         #Write the transactions from the log DB file to a CSV file (if applicable).
         csvPath=self.__options.get("logDest",None)
@@ -414,6 +456,12 @@ class CopierManager:
             print(f"\tFailed to remove Sqlite3 Database file at:\n{os.path.abspath(logDBPath)}\n\tReason:\n{str(error)}")
     #END def startJob
 
+    #def __mkdir(self,path):
+    #    while not os.path.exists(path):
+    #        print(f"Making path: {path}...")
+    #        os.mkdir(path)
+    #END def __mkdir
+
     def __listDirs(self,source:os.DirEntry,destination:os.DirEntry) -> Task:
         """
         A generator that finds the next os.DirEntry object within the given 'source'.
@@ -424,8 +472,9 @@ class CopierManager:
             if directory.is_dir():
                 newDest=os.path.join(destination,os.path.basename(directory))
                 try:
-                    os.makedirs(newDest)
-                except OSError:
+                    os.mkdir(newDest)
+                except OSError as e:
+                    #print(e)
                     pass
                 finally:
                     yield from self.__listDirs(directory,newDest)
@@ -493,6 +542,10 @@ class CopierManager:
             for task in searchSubDirs(source,os.path.join(destination,os.path.basename(source))):
                 yield task
     #END def __removeMissingDirs
+
+    def getActiveTasks(self) -> list[Task]:
+        return [thread.getCurrentTask() for thread in self.__threads]
+    #END def getActiveTasks
 #END class CopierManager
 
 def main():
@@ -502,7 +555,21 @@ def main():
     import sys,json
     from ast import literal_eval
 
-    cmdArgs=sys.argv[1:]
+    arguments = sys.argv[1:] #A list or the passed arguments, being the string split by " " characters.
+    cmdArgs : list[str]
+    element : str
+    temporary,notEnclosed="",False
+    cmdArgs=[]
+    for element in arguments:
+        if notEnclosed:
+            temporary+=element
+            continue
+        if element.count("\"")==1:
+            if notEnclosed:
+                cmdArgs.append(temporary)
+            notEnclosed = not notEnclosed
+            continue
+        cmdArgs.append(element)
 
     options:dict
     #Load the options variable with the default options found in the given directory.
@@ -510,17 +577,19 @@ def main():
         options=json.load(file)
     options["cli"]=True
     defaultOptions=options.copy()
+    sourceList = [] #Will become a list of source directories.
 
     noargFlags=[
         "--ignore-old-job"
     ]
 
     noShortenedFlags={
-        "--ignore-old-job":"ignoreOldJob"
+        "--ignore-old-job":"ignoreOldJob",
+        "--sources":"sources"
     }
 
     flags={
-        "--sources":"sources",
+        "--source":"source",
         "--destination":"destination",
         "--job-type":"job-type",
         "--log-destination":"logDest",
@@ -540,7 +609,7 @@ def main():
         elif len(splitArg)==2:
             flag,param=splitArg[0],splitArg[1]
         else:
-            print(splitArg)
+            #print(splitArg)
             improperArg(arg)
 
         if flag in shortenedFlags.keys():
@@ -552,7 +621,10 @@ def main():
         else:
             improperArg(arg)
 
-        if actualFlag=="sources": #Convert the string-formatted array into a literal array.
+        if actualFlag=="source": #Add the source to the sources
+            sourceList.append(param)
+            continue
+        elif actualFlag=="sources": #Evaluate the parameter argument as a literal pythonese list from a string.
             param=literal_eval(param)
             for i,v in enumerate(param):
                 param[i]=os.path.abspath(v.strip("\""))
@@ -574,6 +646,14 @@ def main():
         options[actualFlag]=param
     #print(options)
 
+    if len(options.get("sources",[]))==0 and len(sourceList)!=0:
+        options["sources"]=sourceList
+    elif len(options.get("sources",[]))==0 and len(sourceList)==0:
+        print(f"TARGET ERROR: No sources specified.")
+        sys.exit(4)
+
+    #print(f"\nSources: {options.get('sources',[])}\nDestination: {options.get('destination','<null>')}")
+
     manager=CopierManager(options.copy())
 
     previousFlags=manager.getPreviousOptions(options["destination"])
@@ -583,6 +663,12 @@ def main():
     manager.startJob(options["sources"],options["destination"])
 #END def main
 
+#System exit codes:
+    #0; Completed successfully.
+    #1; Python error (see output).
+    #2; CLI flag error.
+    #3; Invalid argument(s) entered.
+    #4; No target(s) specified as source(s).
 def improperArg(arg:str) -> None:
     import sys
     print(f"FLAG ERROR: Unknown flag near: {arg}")
