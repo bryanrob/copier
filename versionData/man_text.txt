@@ -1,0 +1,56 @@
+-----------------------------------------
+            \\Copier Manual//
+-----------------------------------------
+Description:
+    A file-replication program written in Python; featuring a detailed logging system and multi-threaded capabilities.
+
+CLI Syntax: 
+    python ./copier.py [--flags:args / -f:args]
+
+    - Point Python to the path of the `copier.py` script on your local environment.
+    - Flags are entered as `--flag:arg`.
+        * Example, `--source:"C:\Windows"`.
+
+-----------------------------------------
+Flags list:
+    * All flags can only be invoked once unless stated otherwise.
+
+    ---------------------------------
+    Required flags:
+        --source:<path> (-s) :: Adds the <path> to the copier's target list.  Can be either a path or file.  Can be invoked multiple times to target multiple unique paths/files.
+
+        --destination:<path> (-d) :: Sets the path where the replication results will be placed.
+
+    ---------------------------------
+    Optional flags:
+        --sources:[<path,paths>] :: Adds a list of <path(s)> to the copier's target list.  Overrides any paths added by the `--source` flag.
+
+        --job-type:<string> (-j) :: Specifies the kind-of job specified from <string>.
+            * Copy :: Replicates the files & folder structure from the source target(s) and inserts it(them) into the destination.
+            * Move :: Executes a `Copy` operation, then deletes the source target file(s).
+
+        --log-destination:<path> (-l) :: Saves a log file at the specified <path>.  If a path is not specified, then the file will be saved at the root of the destination target.
+
+        --hash-algorithm:<string> (-h) :: Sets the hashing algorithm used in the log file to the kind specified in <string>.  Defaults to `None`; choose one from the list below.
+            * MD5
+            * SHA256
+            * SHA512
+            * SipHash
+
+        --thread-count:<int> (-t) :: The amount of threads for this process.  If multiple files are targeted, up to <int> files will be replicated concurrently.
+            * WARNING!!  Higher values may result in system instability!
+
+        --conflict:<int> (-c) :: If a source target exists in the destination target, this flag instructs the process to do one of the following:
+            0 :: Skip processing the source target.
+            1 :: Always overwrite the destination target.
+            2 :: Overwrite the destination target if the source target is newer.
+
+        --retry:<int> (-r) :: If a source target failed to be replicated, then the process will retry up to <int> times.
+
+        --wait:<int> (-w) :: If the process is about to retry to replicate a target, the next attempt will begin after <int> milliseconds.
+
+        --ignore-old-job :: If a `job.db` file was found in the destination, then instead of trying to continue where the file indicates, the process will restart the job from the very beginning.
+
+        --help (-H) :: Displays this wall of text.
+
+-----------------------------------------

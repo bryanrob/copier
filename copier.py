@@ -90,7 +90,6 @@ class CopierThread(Thread):
     """
     An individual thread for the Copier process.  Pulls a `Task` from the queue to process, applying the provided options flags as necessary.
     """
-    __continue : bool
     __queuePointer : Queue[Task]
     __dbConnection : sqlite3.Connection
     __currentTask : Task
@@ -225,11 +224,12 @@ class CopierThread(Thread):
                 actionStatus="Success"
                 logStatement="Skip condition met.  Process skipped."
             self.__queuePointer.task_done()
+            self.__currentTask=None
             timerEnd=time.time_ns()
 
             timerStartStr=time.ctime(timerStart/(10**9))
             timerEndStr=time.ctime(timerEnd/(10**9))
-            
+
             #Submit log to the DB.
             with self.__dbConnection:
                 self.__dbConnection.execute("insert into Completed(action,status,description,source,src_checksum,destination,dest_checksum,retries,time_started,unix_time_started,time_ended,unix_time_ended) values (?,?,?,?,?,?,?,?,?,?,?,?)",(logAction,actionStatus,f"{conflictionStatus}{logStatement}",logSource,hashSource,logDest,hashDest,attemptCounter,timerStartStr,timerStart,timerEndStr,timerEnd))
@@ -250,11 +250,11 @@ class CopierThread(Thread):
         """
         self.__dbConnection=sqlite3.connect(db,check_same_thread=False) if db is not None else None
     #END def setDB
-    def getCurrentTask(self) -> Task:
+    def getCurrentTask(self) -> Task | None:
         """
-        Returns the `currentTask` data.
+        Returns the `currentTask` data if the process is running.  Otherwise; returns `None` if thread is dead OR has no current task.
         """
-        return self.__currentTask
+        return self.__currentTask if self.__process_loop else None
     #END def getCurrentTask
     def closeDB(self) -> None:
         """
@@ -323,48 +323,52 @@ class CopierManager:
         self.__threads=[CopierThread(self.__queue,self.__Hasher,options) for thread in range(options.get("threads",1))]
     #END def setOptions
 
-    def startJob(self,sources:list[str],destination:str):
+    def startJob(self,sources:list[str],destination:str) -> int:
         """
-        Begins processing the files from the `sources` paths, inserting them into the `destination` directory.
+        Begins processing the files from the `sources` paths, inserting them into the `destination` directory.  Returns an exit code from execution.
         """
         timerStart=time.time_ns()
 
         #Pass the path of the DB file to the threads.
         logDBPath=os.path.normpath(f"{destination}/job.db")
-        db=sqlite3.connect(logDBPath)
-        with db:
-            db.cursor().execute(
-                    """create table if not exists Completed
-                    (
-                        action varchar(8) not null,
-                        status varchar(8) not null,
-                        description varchar(256) not null,
-                        retries tinyint not null,
-                        source varchar(4098) not null,
-                        src_checksum varchar(512),
-                        destination varchar(4098) not null,
-                        dest_checksum varchar(512),
-                        time_started varchar(24) not null,
-                        unix_time_started int not null,
-                        time_ended varchar(24) not null,
-                        unix_time_ended int not null
-                    );"""     
-            )
-            db.cursor().execute("""
-                    create table if not exists Options
-                    (
-                        int_pointer tinyint not null primary key,
-                        json varchar(8196) not null
-                    );"""               
-            )
-            db.cursor().execute("""
-                    insert into Options(int_pointer,json) values(?,?)
-                            on conflict (int_pointer) do update set
-                                json=excluded.json
-                    ;
-                    """,
-                    (1,json.dumps(self.__options))
-            )
+        try:            
+            db=sqlite3.connect(logDBPath)
+            with db:
+                db.cursor().execute(
+                        """create table if not exists Completed
+                        (
+                            action varchar(8) not null,
+                            status varchar(8) not null,
+                            description varchar(256) not null,
+                            retries tinyint not null,
+                            source varchar(4098) not null,
+                            src_checksum varchar(512),
+                            destination varchar(4098) not null,
+                            dest_checksum varchar(512),
+                            time_started varchar(24) not null,
+                            unix_time_started int not null,
+                            time_ended varchar(24) not null,
+                            unix_time_ended int not null
+                        );"""     
+                )
+                db.cursor().execute("""
+                        create table if not exists Options
+                        (
+                            int_pointer tinyint not null primary key,
+                            json varchar(8196) not null
+                        );"""               
+                )
+                db.cursor().execute("""
+                        insert into Options(int_pointer,json) values(?,?)
+                                on conflict (int_pointer) do update set
+                                    json=excluded.json
+                        ;
+                        """,
+                        (1,json.dumps(self.__options))
+                )
+        except sqlite3.OperationalError as error:
+            print(f"\tFailed to create Sqlite3 Database file at:\n{os.path.abspath(logDBPath)}\n\tReason:\n{str(error)}")
+            return 6
 
         for thread in self.__threads:
             thread.setDB(logDBPath)
@@ -451,9 +455,11 @@ class CopierManager:
 
         try:
             os.remove(logDBPath)
+            return 0
             #pass
         except OSError as error:
             print(f"\tFailed to remove Sqlite3 Database file at:\n{os.path.abspath(logDBPath)}\n\tReason:\n{str(error)}")
+            return 6
     #END def startJob
 
     #def __mkdir(self,path):
@@ -555,6 +561,8 @@ def main():
     import sys,json
     from ast import literal_eval
 
+    exitStatus:int
+
     arguments = sys.argv[1:] #A list or the passed arguments, being the string split by " " characters.
     cmdArgs : list[str]
     element : str
@@ -602,10 +610,15 @@ def main():
 
     shortenedFlags={f"-{flag[2]}":flag for flag in flags}
 
+    executeProcess=True
     for arg in cmdArgs:
         splitArg=arg.split(":",1)
         if splitArg[0] in noargFlags:
             flag,param=splitArg[0],True
+        elif splitArg[0]=="--help" or splitArg[0]=="-H":
+            printHelp()
+            executeProcess=False
+            break
         elif len(splitArg)==2:
             flag,param=splitArg[0],splitArg[1]
         else:
@@ -644,24 +657,42 @@ def main():
             except ValueError:
                 improperValue(arg,param)
         options[actualFlag]=param
-    #print(options)
+        #print(options)
+    #END for
 
-    if len(options.get("sources",[]))==0 and len(sourceList)!=0:
-        options["sources"]=sourceList
-    elif len(options.get("sources",[]))==0 and len(sourceList)==0:
-        print(f"TARGET ERROR: No sources specified.")
-        sys.exit(4)
+    if executeProcess:
+        if len(options.get("sources",[]))==0 and len(sourceList)!=0:
+            options["sources"]=sourceList
+        elif len(options.get("sources",[]))==0 and len(sourceList)==0:
+            print(f"TARGET ERROR: No sources specified.")
+            sys.exit(4)
+        elif options.get("destination",None) is None:
+            print("TARGET ERROR: No destination specified.")
+            sys.exit(5)
 
-    #print(f"\nSources: {options.get('sources',[])}\nDestination: {options.get('destination','<null>')}")
+        #print(f"\nSources: {options.get('sources',[])}\nDestination: {options.get('destination','<null>')}")
 
-    manager=CopierManager(options.copy())
+        manager=CopierManager(options.copy())
 
-    previousFlags=manager.getPreviousOptions(options["destination"])
-    if previousFlags is not None and not options.get("ignoreOldJob",False):
-        manager.setOptions(previousFlags)
+        previousFlags=manager.getPreviousOptions(options["destination"])
+        if previousFlags is not None and not options.get("ignoreOldJob",False):
+            manager.setOptions(previousFlags)
 
-    manager.startJob(options["sources"],options["destination"])
+        exitStatus=manager.startJob(options["sources"],options["destination"])
+
+        if exitStatus!=0:
+            sys.exit(exitStatus)
+    #END if executeProcess
 #END def main
+
+def printHelp() -> None:
+    """
+    Displays the manual for the copier program in the console.
+    """
+
+    with open(os.path.dirname(__file__) + "/versionData/man_text.txt") as file:
+        print(file.read())
+#END def printHelp
 
 #System exit codes:
     #0; Completed successfully.
@@ -669,6 +700,8 @@ def main():
     #2; CLI flag error.
     #3; Invalid argument(s) entered.
     #4; No target(s) specified as source(s).
+    #5; No target specified as a destination.
+    #6; An OS error had occurred at runtime.
 def improperArg(arg:str) -> None:
     import sys
     print(f"FLAG ERROR: Unknown flag near: {arg}")

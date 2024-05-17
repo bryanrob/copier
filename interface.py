@@ -757,7 +757,7 @@ class JobActivity(tk.CTkToplevel):
     """
 
     __master : Window
-    __threads :CopierManager
+    __copier :CopierManager
 
     threadBars : list[tk.CTkFrame]
     dimensions : dict
@@ -771,6 +771,7 @@ class JobActivity(tk.CTkToplevel):
         super().__init__(*args, **kwargs)
 
         this.__master=parent
+        this.__copier=CopierManager(this.__master.options)
 
         this.title(f"{parent.programTitle} - Job Progress")
 
@@ -822,22 +823,6 @@ class JobActivity(tk.CTkToplevel):
 
         this.threadBars=[]
         for threadNum in range(this.__master.options["threads"]):
-            #threadFrame=tk.CTkFrame(this.scrollThreadProgress)
-
-            #Vars
-            #threadStatus=tk.StringVar(threadFrame,"Idle")
-            #threadTarget=tk.StringVar(threadFrame,value="None")
-            #threadWritten=tk.IntVar(threadFrame,0)
-            #threadFileSize=tk.IntVar(threadFrame,1)
-            #threadProgress=tk.DoubleVar(threadFrame,round((threadWritten.get()/threadFileSize.get())*10000)/100)
-
-            #Elements
-            #threadLabel=tk.CTkLabel(threadFrame,text=f"Thread #{threadNum}\nTarget:\n{threadTarget.get()}",font=parent.itemFont,wraplength=this.dimensions["width"]-50)
-            #threadProgressBar=tk.CTkProgressBar(threadFrame,#variable=threadProgress,width=this.mainFrame.cget("width"))
-            #threadProgressLabel=tk.CTkLabel(threadFrame,text=f"Progress: {threadProgress.get()}%\n{threadWritten.get()} B/{threadFileSize.get()} B")
-            #threadProgressBar.set(threadProgress.get())
-            #this.packChildren(threadFrame,fill="x")
-
             this.threadBars.append(ThreadWidget(this,threadNum,master=this.scrollThreadProgress))
         packChildren(this.scrollThreadProgress,padding={0:parent.pad,1:parent.pad},fill="both")
         for widget in this.threadBars:
@@ -863,8 +848,23 @@ class JobActivity(tk.CTkToplevel):
     def getMaster(self) -> Window:
         return self.__master
     #END def getMaster
-#END class JobActivity
 
+    def readThreads(self) -> None:
+        self.threadBars : list[ThreadWidget]
+        for i,threadTask in enumerate(self.__copier.getActiveTasks()):
+            if threadTask is not None:
+                self.threadBars[i].setStatus(True)
+                self.threadBars[i].setTarget(threadTask.destination)
+                self.threadBars[i].setWritten(os.stat(threadTask.destination).st_size or 0)
+                self.threadBars[i].setFileSize(os.stat(threadTask.source).st_size or 1)
+            else:
+                self.threadBars[i].setStatus(False)
+                self.threadBars[i].setTarget("<None>")
+                self.threadBars[i].setWritten(1)
+                self.threadBars[i].setFileSize(1)
+    #END def readThreads
+#END class JobActivity
+       
 class ThreadWidget(tk.CTkFrame):
     #threadFrame=tk.CTkFrame(this.scrollThreadProgress)
 
@@ -897,19 +897,36 @@ class ThreadWidget(tk.CTkFrame):
     #END def __init__
 
     def getProgress(self) -> float:
+        """
+        Calculates the thread's current progress according to the amount of bytes it has written and the overall size of the target file that it's reading.
+
+        Returns a percent value from `0.00` to `100.00`.
+        """
         return round((self.__written/self.__fileSize)*10000)/100
     #END def getProgress
 
     def setStatus(self,value:bool) -> None:
+        """
+        Sets the display of the thread's status as 'Working' or 'Idle' (depending on the `value` argument).
+        """
         self.__status="Working" if value else "Idle"
     #END def setStatus
     def setTarget(self,path:str) -> None:
+        """
+        Sets the display of the thread's target as the given `path` argument.
+        """
         self.__target=path
     #END def setTarget
     def setWritten(self,value:int) -> None:
+        """
+        Sets the display for the amount of bytes written by the thread for its current task.
+        """
         self.__written=value
     #END def setWritten
     def setFileSize(self,value:int) -> None:
+        """
+        Sets the display for the size of the target file being read by the thread for its current task.
+        """
         self.__fileSize=value
     #END def setFileSize
 #END class ThreadWidget
